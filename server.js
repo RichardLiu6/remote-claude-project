@@ -66,7 +66,7 @@ wss.on('connection', (ws) => {
     return;
   }
 
-  const pty = spawn('tmux', ['attach', '-t', session], {
+  const pty = spawn('/opt/homebrew/bin/tmux', ['attach', '-t', session], {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
@@ -104,7 +104,7 @@ wss.on('connection', (ws) => {
 
 // --- Start ---
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8022;
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`Web terminal running on http://0.0.0.0:${PORT}`);
 });

@@ -6,7 +6,8 @@
   <title>Claude Remote Terminal</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; touch-action: manipulation; }
+
     body {
       background: #1a1a2e;
       color: #e0e0e0;
@@ -15,6 +16,9 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
+      /* Prevent rubber-band scrolling on iOS */
+      position: fixed;
+      width: 100%;
     }
 
     /* Top bar */
@@ -22,77 +26,241 @@
       display: flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 12px;
+      padding: 8px 10px;
       background: #16213e;
       border-bottom: 1px solid #0f3460;
       flex-shrink: 0;
+      min-height: 48px;
     }
     #topbar select {
       flex: 1;
-      padding: 8px 12px;
+      min-width: 0;
+      padding: 8px 10px;
       background: #0f3460;
       color: #e0e0e0;
       border: 1px solid #533483;
       border-radius: 6px;
-      font-size: 16px; /* prevent iOS zoom on focus */
+      font-size: 15px;
       -webkit-appearance: none;
+      /* Prevent text overflow in select */
+      text-overflow: ellipsis;
     }
     #topbar button {
-      padding: 8px 16px;
+      padding: 8px 12px;
       background: #533483;
-      color: white;
+      color: #ffffff;
       border: none;
       border-radius: 6px;
-      font-size: 14px;
+      font-size: 13px;
       cursor: pointer;
       white-space: nowrap;
+      flex-shrink: 0;
+      min-height: 36px;
+      /* Minimum touch target */
+      min-width: 44px;
     }
     #topbar button:active { background: #6a42a0; }
-    #topbar button:disabled { opacity: 0.5; }
-    #refresh-btn { background: #0f3460; }
+    #topbar button:disabled { opacity: 0.4; }
+    #refresh-btn {
+      background: #0f3460;
+      color: #a0c4ff;
+    }
+    #refresh-btn:active { background: #1a3a6e; }
 
-    /* Status */
+    /* Status bar */
     #status {
-      padding: 4px 12px;
-      font-size: 12px;
-      color: #888;
-      background: #16213e;
+      padding: 3px 12px;
+      font-size: 11px;
+      color: #666;
+      background: #12192e;
       flex-shrink: 0;
+      letter-spacing: 0.02em;
+      min-height: 20px;
+      display: flex;
+      align-items: center;
     }
     #status.connected { color: #4ade80; }
     #status.error { color: #f87171; }
 
-    /* Terminal */
+    /* Terminal container */
     #terminal-container {
       flex: 1;
       overflow: hidden;
+      /* Ensure xterm fills the container */
+      position: relative;
+      padding: 0 8px;
+    }
+    #terminal-container .xterm {
+      height: 100%;
+    }
+    #terminal-container .xterm-viewport {
+      /* Improve scroll inertia on iOS */
+      -webkit-overflow-scrolling: touch;
     }
 
-    /* Session picker overlay */
+    /* Mobile input bar — stays above virtual keyboard via env() */
+    #input-bar {
+      display: none;
+      flex-shrink: 0;
+      background: #16213e;
+      border-top: 1px solid #233a6a;
+      padding: 6px 10px;
+      /* Safe area for devices with home indicator */
+      padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
+    }
+
+    /* Quick action buttons row */
+    #quick-buttons {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 6px;
+      overflow-x: auto;
+      -webkit-overflow-scrolling: touch;
+      /* Hide scrollbar but keep scrolling */
+      scrollbar-width: none;
+      padding-bottom: 1px;
+    }
+    #quick-buttons::-webkit-scrollbar { display: none; }
+
+    #quick-buttons button {
+      padding: 7px 13px;
+      background: #1e3155;
+      color: #c8d8f0;
+      border: 1px solid #2d4a7a;
+      border-radius: 5px;
+      font-size: 13px;
+      font-family: Menlo, Monaco, 'Courier New', monospace;
+      white-space: nowrap;
+      cursor: pointer;
+      flex-shrink: 0;
+      /* Enforce minimum touch target height */
+      min-height: 34px;
+      /* Visually distinct from input area */
+      letter-spacing: 0.01em;
+    }
+    #quick-buttons button:active {
+      background: #533483;
+      border-color: #6a42a0;
+      color: #ffffff;
+    }
+
+    /* Input row */
+    #input-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+
+    #mobile-input {
+      flex: 1;
+      padding: 10px 12px;
+      background: #0d2040;
+      color: #e8eeff;
+      border: 1.5px solid #2d4a7a;
+      border-radius: 8px;
+      font-size: 16px;
+      font-family: Menlo, Monaco, 'Courier New', monospace;
+      outline: none;
+      -webkit-appearance: none;
+      /* Prevent zoom on focus in iOS (font-size 16px already handles this) */
+      caret-color: #7c5cbf;
+      min-height: 42px;
+    }
+    #mobile-input::placeholder {
+      color: #445577;
+      font-family: -apple-system, system-ui, sans-serif;
+      font-size: 14px;
+    }
+    #mobile-input:focus {
+      border-color: #6a42a0;
+      background: #102345;
+    }
+
+    #send-btn {
+      padding: 10px 16px;
+      background: #533483;
+      color: #ffffff;
+      border: none;
+      border-radius: 8px;
+      font-size: 15px;
+      font-weight: 600;
+      cursor: pointer;
+      flex-shrink: 0;
+      min-height: 42px;
+      min-width: 58px;
+      letter-spacing: 0.02em;
+    }
+    #send-btn:active { background: #6a42a0; }
+
+    /* Session picker */
     #picker {
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       height: 100%;
-      gap: 16px;
-      padding: 20px;
+      gap: 12px;
+      padding: 28px 16px 20px;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
     }
-    #picker h2 { font-weight: 400; color: #aaa; }
+
+    #picker h2 {
+      font-weight: 400;
+      color: #8899bb;
+      font-size: 17px;
+      letter-spacing: 0.03em;
+      text-align: center;
+      margin-bottom: 4px;
+    }
+
     .session-card {
       width: 100%;
-      max-width: 400px;
-      padding: 16px;
+      max-width: 440px;
+      padding: 14px 16px;
       background: #16213e;
-      border: 1px solid #0f3460;
-      border-radius: 8px;
+      border: 1px solid #233a6a;
+      border-radius: 10px;
       cursor: pointer;
-      transition: border-color 0.15s;
+      transition: border-color 0.12s, background 0.12s;
+      /* Minimum touch target height */
+      min-height: 60px;
     }
-    .session-card:active { border-color: #533483; }
-    .session-name { font-size: 18px; font-weight: 600; }
-    .session-meta { font-size: 12px; color: #888; margin-top: 4px; }
-    .no-sessions { color: #666; font-style: italic; }
+    .session-card:active {
+      border-color: #7c5cbf;
+      background: #1d2d52;
+    }
+
+    .session-name {
+      font-size: 17px;
+      font-weight: 600;
+      color: #d0ddff;
+      letter-spacing: 0.01em;
+    }
+    .session-meta {
+      font-size: 12px;
+      color: #607090;
+      margin-top: 4px;
+      letter-spacing: 0.02em;
+    }
+    .no-sessions {
+      color: #556070;
+      font-style: italic;
+      text-align: center;
+      line-height: 1.6;
+    }
+
+    /* Picker refresh button override */
+    #picker button {
+      min-height: 44px;
+      min-width: 120px;
+    }
+
+    /* Responsive: slightly larger text on wider phones */
+    @media (min-width: 390px) {
+      #quick-buttons button { font-size: 14px; padding: 7px 15px; }
+      #send-btn { min-width: 64px; }
+    }
   </style>
 </head>
 <body>
@@ -102,9 +270,24 @@
   <button id="refresh-btn" onclick="loadSessions()">Refresh</button>
   <button id="disconnect-btn" onclick="disconnect()">Disconnect</button>
 </div>
-<div id="status"></div>
+<div id="status" aria-live="polite" aria-atomic="true"></div>
 <div id="terminal-container">
   <div id="picker"><h2>Loading sessions...</h2></div>
+</div>
+<div id="input-bar">
+  <div id="quick-buttons" role="toolbar" aria-label="Quick keys">
+    <button onclick="sendKey('\t')" aria-label="Tab key">Tab</button>
+    <button onclick="sendKey('\x1b[A')" aria-label="Arrow up">↑ Up</button>
+    <button onclick="sendKey('\x1b[B')" aria-label="Arrow down">↓ Down</button>
+    <button onclick="sendKey('\x03')" aria-label="Control C">^C</button>
+    <button onclick="sendKey('\x1a')" aria-label="Control Z">^Z</button>
+    <button onclick="sendKey('\x1b')" aria-label="Escape key">Esc</button>
+    <button onclick="sendKey('/')" aria-label="Forward slash">/</button>
+  </div>
+  <div id="input-row">
+    <input id="mobile-input" type="text" placeholder="Command..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
+    <button id="send-btn" onclick="sendInput()" aria-label="Send command">Send</button>
+  </div>
 </div>
 
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
@@ -114,16 +297,41 @@
   let ws = null;
   let fitAddon = null;
   let currentSession = null;
+  let isComposing = false;
+
+  // Reconnection state
+  let reconnectTimer = null;
+  let reconnectAttempts = 0;
+  const MAX_RECONNECT_ATTEMPTS = 10;
+  const RECONNECT_BASE_DELAY = 1000;
+  let intentionalDisconnect = false;
+
+  // Resize handler references for cleanup
+  let resizeHandler = null;
+  let vpResizeHandler = null;
+
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
   const picker = document.getElementById('picker');
   const topbar = document.getElementById('topbar');
   const statusEl = document.getElementById('status');
   const container = document.getElementById('terminal-container');
   const sessionSelect = document.getElementById('session-select');
+  const inputBar = document.getElementById('input-bar');
+  const mobileInput = document.getElementById('mobile-input');
 
   function setStatus(text, cls) {
     statusEl.textContent = text;
     statusEl.className = cls || '';
+  }
+
+  // Helper: send data to WebSocket if open
+  function wsSend(data) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(data);
+      return true;
+    }
+    return false;
   }
 
   async function loadSessions() {
@@ -161,13 +369,100 @@
     ).join('');
   }
 
+  // Send raw key sequence to terminal (quick buttons)
+  function sendKey(key) {
+    wsSend(key);
+    if (isMobile) mobileInput.focus();
+  }
+
+  // Send input bar text to terminal (Send button)
+  function sendInput() {
+    const text = mobileInput.value;
+    if (text) wsSend(text + '\r');
+    mobileInput.value = '';
+    mobileInput.focus();
+  }
+
+  // --- Reconnection logic ---
+  function clearReconnect() {
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    reconnectAttempts = 0;
+  }
+
+  function scheduleReconnect() {
+    if (intentionalDisconnect || !currentSession) return;
+    if (reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
+      setStatus('Reconnect failed (' + MAX_RECONNECT_ATTEMPTS + ' attempts). Tap Refresh.', 'error');
+      return;
+    }
+    // Exponential backoff: 1s, 2s, 4s, ... capped at 30s, with jitter
+    const delay = Math.min(RECONNECT_BASE_DELAY * Math.pow(2, reconnectAttempts), 30000);
+    const jitter = Math.random() * 500;
+    reconnectAttempts++;
+    setStatus('Reconnecting (' + reconnectAttempts + '/' + MAX_RECONNECT_ATTEMPTS + ')...', 'error');
+    reconnectTimer = setTimeout(() => {
+      if (currentSession && (!ws || ws.readyState === WebSocket.CLOSED)) {
+        connectWs(currentSession);
+      }
+    }, delay + jitter);
+  }
+
+  // Establish WebSocket connection (separated for reconnection reuse)
+  function connectWs(session) {
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(session)}`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      clearReconnect();
+      setStatus('Connected: ' + session, 'connected');
+      if (term) {
+        ws.send('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+      }
+      if (isMobile) mobileInput.focus();
+    };
+
+    ws.onmessage = (e) => {
+      const data = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
+      if (term) term.write(data);
+    };
+
+    ws.onclose = () => {
+      if (!intentionalDisconnect) {
+        setStatus('Disconnected - reconnecting...', 'error');
+        scheduleReconnect();
+      } else {
+        setStatus('Disconnected', 'error');
+      }
+    };
+
+    ws.onerror = () => {
+      // onclose fires after onerror; reconnection handled there
+    };
+
+    // Desktop: terminal keyboard input -> WebSocket
+    if (!isMobile && term) {
+      term.onData((data) => { wsSend(data); });
+    }
+  }
+
   function connect(session) {
-    if (ws) disconnect();
+    // Clean up previous connection without returning to picker
+    if (ws || term) {
+      intentionalDisconnect = true;
+      cleanupConnection();
+    }
+    intentionalDisconnect = false;
+    clearReconnect();
     currentSession = session;
 
-    // Hide picker, show topbar + terminal
+    // Hide picker, show topbar + terminal + input bar (mobile only)
     picker.style.display = 'none';
     topbar.style.display = 'flex';
+    if (isMobile) inputBar.style.display = 'block';
     sessionSelect.value = session;
 
     // Init xterm
@@ -178,64 +473,164 @@
       cursorBlink: true,
       convertEol: true,
       allowProposedApi: true,
+      scrollback: 5000,
+      disableStdin: isMobile,  // Mobile uses input bar instead
     });
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
     term.open(container);
     fitAddon.fit();
 
-    // WebSocket
-    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-    ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(session)}`);
-    ws.binaryType = 'arraybuffer';
-
-    ws.onopen = () => {
-      setStatus(`Connected: ${session}`, 'connected');
-      // Send initial size
-      const { cols, rows } = term;
-      ws.send('\x01resize:' + JSON.stringify({ cols, rows }));
-    };
-
-    ws.onmessage = (e) => {
-      const data = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
-      term.write(data);
-    };
-
-    ws.onclose = () => {
-      setStatus('Disconnected', 'error');
-    };
-
-    ws.onerror = () => {
-      setStatus('Connection error', 'error');
-    };
-
-    // Terminal input → WebSocket
-    term.onData((data) => {
-      if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
-    });
-
-    // Resize handling
-    const onResize = () => {
-      if (fitAddon) fitAddon.fit();
-      if (ws && ws.readyState === WebSocket.OPEN && term) {
-        ws.send('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+    // On mobile, prevent single-finger touch on terminal from scrolling history
+    if (isMobile) {
+      const termEl = container.querySelector('.xterm');
+      if (termEl) {
+        termEl.addEventListener('touchmove', (e) => {
+          if (e.touches.length < 2) e.preventDefault();
+        }, { passive: false });
       }
+    }
+
+    // WebSocket connection
+    connectWs(session);
+
+    // Resize handling (clean up old handlers first)
+    if (resizeHandler) window.removeEventListener('resize', resizeHandler);
+    if (vpResizeHandler) window.visualViewport?.removeEventListener('resize', vpResizeHandler);
+
+    resizeHandler = () => {
+      if (fitAddon) fitAddon.fit();
+      if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
     };
-    window.addEventListener('resize', onResize);
-    // Also fit after a short delay for mobile keyboard changes
-    window.visualViewport?.addEventListener('resize', onResize);
+    vpResizeHandler = resizeHandler;
+    window.addEventListener('resize', resizeHandler);
+    window.visualViewport?.addEventListener('resize', vpResizeHandler);
+  }
+
+  // Internal cleanup (no UI state changes)
+  function cleanupConnection() {
+    clearReconnect();
+    if (ws) { ws.close(); ws = null; }
+    if (term) { term.dispose(); term = null; }
+    if (resizeHandler) {
+      window.removeEventListener('resize', resizeHandler);
+      resizeHandler = null;
+    }
+    if (vpResizeHandler) {
+      window.visualViewport?.removeEventListener('resize', vpResizeHandler);
+      vpResizeHandler = null;
+    }
+    fitAddon = null;
   }
 
   function disconnect() {
-    if (ws) { ws.close(); ws = null; }
-    if (term) { term.dispose(); term = null; }
-    fitAddon = null;
+    intentionalDisconnect = true;
+    cleanupConnection();
     currentSession = null;
     topbar.style.display = 'none';
+    inputBar.style.display = 'none';
     picker.style.display = 'flex';
     setStatus('');
     loadSessions();
   }
+
+  // --- Mobile input: IME composition + real-time character sending ---
+  //
+  // Mobile keyboard challenge: Android soft keyboards often fire keydown with
+  // e.key === 'Unidentified' and e.keyCode === 229 for ALL keys (Backspace,
+  // Enter, arrows, etc.). We cannot rely on keydown alone on mobile.
+  //
+  // Strategy:
+  //   1. keydown handles keys when e.key is recognized (desktop + iOS)
+  //   2. beforeinput handles Backspace/Enter via inputType when keydown misses
+  //   3. input handles normal character insertion (non-IME)
+  //   4. compositionstart/end handles IME (pinyin, etc.)
+
+  let justFinishedComposition = false;
+  // Track whether keydown already handled the event this cycle
+  let keydownHandled = false;
+
+  mobileInput.addEventListener('compositionstart', () => {
+    isComposing = true;
+  });
+
+  mobileInput.addEventListener('compositionend', () => {
+    isComposing = false;
+    justFinishedComposition = true;
+    // Send the composed text (e.g. Chinese characters from pinyin IME)
+    const text = mobileInput.value;
+    if (text) wsSend(text);
+    mobileInput.value = '';
+    // Suppress the trailing `input` event that some browsers fire after compositionend
+    requestAnimationFrame(() => { justFinishedComposition = false; });
+  });
+
+  // beforeinput: catches mobile soft keyboard actions that keydown misses
+  // (when e.key is 'Unidentified'). This fires BEFORE the input value changes.
+  mobileInput.addEventListener('beforeinput', (e) => {
+    if (isComposing) return;
+    if (keydownHandled) return;  // keydown already sent this action
+
+    if (e.inputType === 'deleteContentBackward') {
+      e.preventDefault();
+      wsSend('\x7f');  // DEL
+      mobileInput.value = '';
+    } else if (e.inputType === 'deleteContentForward') {
+      e.preventDefault();
+      wsSend('\x1b[3~');  // Forward delete escape sequence
+    } else if (e.inputType === 'insertLineBreak') {
+      e.preventDefault();
+      wsSend('\r');
+    }
+  });
+
+  mobileInput.addEventListener('input', (e) => {
+    if (isComposing) return;
+    if (justFinishedComposition) return;
+    if (keydownHandled) { keydownHandled = false; return; }
+    // Non-IME input: send immediately for real-time tab completion etc.
+    const text = mobileInput.value;
+    if (text) wsSend(text);
+    mobileInput.value = '';
+  });
+
+  mobileInput.addEventListener('keydown', (e) => {
+    if (isComposing) return;
+    keydownHandled = false;
+
+    // On mobile, many keys fire as 'Unidentified' or keyCode 229.
+    // Skip those -- beforeinput will handle them instead.
+    if (e.key === 'Unidentified' || e.key === 'Process') return;
+
+    // Map special keys to terminal escape sequences
+    const keyMap = {
+      'Enter':      '\r',
+      'ArrowUp':    '\x1b[A',
+      'ArrowDown':  '\x1b[B',
+      'ArrowLeft':  '\x1b[D',
+      'ArrowRight': '\x1b[C',
+      'Tab':        '\t',
+      'Escape':     '\x1b',
+    };
+
+    if (keyMap[e.key]) {
+      e.preventDefault();
+      wsSend(keyMap[e.key]);
+      keydownHandled = true;
+      return;
+    }
+
+    if (e.key === 'Backspace') {
+      e.preventDefault();
+      wsSend('\x7f');
+      mobileInput.value = '';
+      keydownHandled = true;
+    } else if (e.key === 'Delete') {
+      e.preventDefault();
+      wsSend('\x1b[3~');
+      keydownHandled = true;
+    }
+  });
 
   // Switch session from dropdown
   sessionSelect.addEventListener('change', () => {
