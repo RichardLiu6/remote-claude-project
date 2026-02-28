@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Claude Remote Terminal</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    body {
+      background: #1a1a2e;
+      color: #e0e0e0;
+      font-family: -apple-system, system-ui, sans-serif;
+      height: 100dvh;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+    }
+
+    /* Top bar */
+    #topbar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      background: #16213e;
+      border-bottom: 1px solid #0f3460;
+      flex-shrink: 0;
+    }
+    #topbar select {
+      flex: 1;
+      padding: 8px 12px;
+      background: #0f3460;
+      color: #e0e0e0;
+      border: 1px solid #533483;
+      border-radius: 6px;
+      font-size: 16px; /* prevent iOS zoom on focus */
+      -webkit-appearance: none;
+    }
+    #topbar button {
+      padding: 8px 16px;
+      background: #533483;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      white-space: nowrap;
+    }
+    #topbar button:active { background: #6a42a0; }
+    #topbar button:disabled { opacity: 0.5; }
+    #refresh-btn { background: #0f3460; }
+
+    /* Status */
+    #status {
+      padding: 4px 12px;
+      font-size: 12px;
+      color: #888;
+      background: #16213e;
+      flex-shrink: 0;
+    }
+    #status.connected { color: #4ade80; }
+    #status.error { color: #f87171; }
+
+    /* Terminal */
+    #terminal-container {
+      flex: 1;
+      overflow: hidden;
+    }
+
+    /* Session picker overlay */
+    #picker {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      gap: 16px;
+      padding: 20px;
+    }
+    #picker h2 { font-weight: 400; color: #aaa; }
+    .session-card {
+      width: 100%;
+      max-width: 400px;
+      padding: 16px;
+      background: #16213e;
+      border: 1px solid #0f3460;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: border-color 0.15s;
+    }
+    .session-card:active { border-color: #533483; }
+    .session-name { font-size: 18px; font-weight: 600; }
+    .session-meta { font-size: 12px; color: #888; margin-top: 4px; }
+    .no-sessions { color: #666; font-style: italic; }
+  </style>
+</head>
+<body>
+
+<div id="topbar" style="display:none">
+  <select id="session-select"></select>
+  <button id="refresh-btn" onclick="loadSessions()">Refresh</button>
+  <button id="disconnect-btn" onclick="disconnect()">Disconnect</button>
+</div>
+<div id="status"></div>
+<div id="terminal-container">
+  <div id="picker"><h2>Loading sessions...</h2></div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
+<script>
+  let term = null;
+  let ws = null;
+  let fitAddon = null;
+  let currentSession = null;
+
+  const picker = document.getElementById('picker');
+  const topbar = document.getElementById('topbar');
+  const statusEl = document.getElementById('status');
+  const container = document.getElementById('terminal-container');
+  const sessionSelect = document.getElementById('session-select');
+
+  function setStatus(text, cls) {
+    statusEl.textContent = text;
+    statusEl.className = cls || '';
+  }
+
+  async function loadSessions() {
+    try {
+      const res = await fetch('/api/sessions');
+      const sessions = await res.json();
+      renderPicker(sessions);
+      renderSelect(sessions);
+    } catch (e) {
+      picker.innerHTML = '<h2>Failed to load sessions</h2>';
+    }
+  }
+
+  function renderPicker(sessions) {
+    if (!sessions.length) {
+      picker.innerHTML = '<h2>Sessions</h2><p class="no-sessions">No tmux sessions running.<br>Use start-claude.sh to start one.</p>';
+      picker.innerHTML += '<button onclick="loadSessions()" style="padding:10px 24px;background:#533483;color:white;border:none;border-radius:6px;font-size:16px;cursor:pointer;">Refresh</button>';
+      return;
+    }
+    let html = '<h2>Select Session</h2>';
+    sessions.forEach(s => {
+      const time = new Date(s.created * 1000).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
+      html += `<div class="session-card" onclick="connect('${s.name}')">
+        <div class="session-name">${s.name}</div>
+        <div class="session-meta">started ${time} · ${s.windows} window(s)</div>
+      </div>`;
+    });
+    html += '<button onclick="loadSessions()" style="margin-top:8px;padding:10px 24px;background:#0f3460;color:white;border:none;border-radius:6px;font-size:14px;cursor:pointer;">Refresh</button>';
+    picker.innerHTML = html;
+  }
+
+  function renderSelect(sessions) {
+    sessionSelect.innerHTML = sessions.map(s =>
+      `<option value="${s.name}">${s.name}</option>`
+    ).join('');
+  }
+
+  function connect(session) {
+    if (ws) disconnect();
+    currentSession = session;
+
+    // Hide picker, show topbar + terminal
+    picker.style.display = 'none';
+    topbar.style.display = 'flex';
+    sessionSelect.value = session;
+
+    // Init xterm
+    term = new Terminal({
+      fontSize: 14,
+      fontFamily: 'Menlo, Monaco, monospace',
+      theme: { background: '#1a1a2e' },
+      cursorBlink: true,
+      convertEol: true,
+      allowProposedApi: true,
+    });
+    fitAddon = new FitAddon.FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(container);
+    fitAddon.fit();
+
+    // WebSocket
+    const proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    ws = new WebSocket(`${proto}://${location.host}/ws?session=${encodeURIComponent(session)}`);
+    ws.binaryType = 'arraybuffer';
+
+    ws.onopen = () => {
+      setStatus(`Connected: ${session}`, 'connected');
+      // Send initial size
+      const { cols, rows } = term;
+      ws.send('\x01resize:' + JSON.stringify({ cols, rows }));
+    };
+
+    ws.onmessage = (e) => {
+      const data = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
+      term.write(data);
+    };
+
+    ws.onclose = () => {
+      setStatus('Disconnected', 'error');
+    };
+
+    ws.onerror = () => {
+      setStatus('Connection error', 'error');
+    };
+
+    // Terminal input → WebSocket
+    term.onData((data) => {
+      if (ws && ws.readyState === WebSocket.OPEN) ws.send(data);
+    });
+
+    // Resize handling
+    const onResize = () => {
+      if (fitAddon) fitAddon.fit();
+      if (ws && ws.readyState === WebSocket.OPEN && term) {
+        ws.send('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+      }
+    };
+    window.addEventListener('resize', onResize);
+    // Also fit after a short delay for mobile keyboard changes
+    window.visualViewport?.addEventListener('resize', onResize);
+  }
+
+  function disconnect() {
+    if (ws) { ws.close(); ws = null; }
+    if (term) { term.dispose(); term = null; }
+    fitAddon = null;
+    currentSession = null;
+    topbar.style.display = 'none';
+    picker.style.display = 'flex';
+    setStatus('');
+    loadSessions();
+  }
+
+  // Switch session from dropdown
+  sessionSelect.addEventListener('change', () => {
+    connect(sessionSelect.value);
+  });
+
+  // Init
+  loadSessions();
+</script>
+</body>
+</html>
