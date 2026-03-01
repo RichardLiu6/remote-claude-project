@@ -91,6 +91,9 @@
       position: relative;
       padding: 0 8px;
     }
+    @media (max-width: 768px) {
+      #terminal-container { padding: 0 2px; }
+    }
     #terminal-container .xterm {
       height: 100%;
     }
@@ -350,7 +353,8 @@
     if (isMobile) overlayInput.focus();
   }
 
-  // Build quick-bar buttons (called once; buttons use touchstart to prevent blur)
+  // Build quick-bar buttons (called once; buttons use mousedown to prevent blur
+  // without blocking native horizontal touch-scroll on the quick-bar)
   function buildQuickBar() {
     const keys = [
       { label: 'Tab',  seq: '\t' },
@@ -366,12 +370,9 @@
       const btn = document.createElement('button');
       btn.textContent = k.label;
       btn.setAttribute('aria-label', k.label);
-      // Use touchstart + preventDefault to keep overlay focused (keyboard stays open)
-      btn.addEventListener('touchstart', (e) => {
-        e.preventDefault();
-        sendKey(k.seq);
-      });
-      // Fallback for non-touch (desktop testing)
+      // Use mousedown + preventDefault to keep overlay focused (keyboard stays open)
+      // without blocking the browser's native horizontal touch-scroll on the quick-bar.
+      btn.addEventListener('mousedown', (e) => { e.preventDefault(); });
       btn.addEventListener('click', (e) => { sendKey(k.seq); });
       quickBar.appendChild(btn);
     });
@@ -383,14 +384,7 @@
       selBtn.className = selectMode ? 'select-btn active' : 'select-btn';
       selBtn.textContent = selectMode ? 'Select ✓' : 'Select';
     }
-    selBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      selectMode = !selectMode;
-      updateSelBtn();
-      if (selectMode) {
-        overlayInput.blur();  // Dismiss keyboard to allow selection
-      }
-    });
+    selBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
     selBtn.addEventListener('click', () => {
       selectMode = !selectMode;
       updateSelBtn();
@@ -403,12 +397,7 @@
     doneBtn.textContent = 'Done';
     doneBtn.className = 'done-btn';
     doneBtn.setAttribute('aria-label', 'Dismiss keyboard');
-    doneBtn.addEventListener('touchstart', (e) => {
-      e.preventDefault();
-      selectMode = false;
-      updateSelBtn();
-      overlayInput.blur();
-    });
+    doneBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
     doneBtn.addEventListener('click', () => {
       selectMode = false;
       updateSelBtn();
@@ -505,6 +494,19 @@
 
   }
 
+  // Progressively reduce fontSize until term.cols >= 70, down to a minimum of 10.
+  // Called after the initial fitAddon.fit() on mobile.
+  function optimizeMobileFontSize() {
+    const MIN_FONT_SIZE = 10;
+    const TARGET_COLS = 70;
+    let currentSize = term.options.fontSize;
+    while (term.cols < TARGET_COLS && currentSize > MIN_FONT_SIZE) {
+      currentSize--;
+      term.options.fontSize = currentSize;
+      fitAddon.fit();
+    }
+  }
+
   function connect(session) {
     // Clean up previous connection without returning to picker
     if (ws || term) {
@@ -539,6 +541,7 @@
     term.loadAddon(fitAddon);
     term.open(container);
     fitAddon.fit();
+    if (isMobile) optimizeMobileFontSize();
 
     // Mobile scroll: xterm-viewport handles its own scroll via touch.
     // Bounce prevention is done via CSS overscroll-behavior: none on body.
@@ -647,8 +650,35 @@
   // Track whether keydown already handled the event this cycle
   let keydownHandled = false;
 
+  // --- Autocomplete duplicate prevention ---
+  // Tracks what characters from overlayInput.value have already been sent to the
+  // terminal. When an iOS/Android autocomplete suggestion replaces previously typed
+  // text (e.g. "th" -> "the"), we detect the mismatch and send backspaces to undo
+  // the already-sent chars before sending the replacement word.
+  let sentBuffer = '';
+  // Timer to periodically reset value + sentBuffer to prevent unbounded growth
+  let resetTimer = null;
+
+  function resetSentState() {
+    sentBuffer = '';
+    overlayInput.value = '';
+  }
+
+  // Schedule a deferred reset — if no further input arrives within 800ms,
+  // clear both value and sentBuffer. This prevents the textarea value from
+  // growing indefinitely during long typing sessions.
+  function scheduleReset() {
+    if (resetTimer) clearTimeout(resetTimer);
+    resetTimer = setTimeout(() => {
+      // Only reset if not currently composing
+      if (!isComposing) resetSentState();
+    }, 800);
+  }
+
   overlayInput.addEventListener('compositionstart', () => {
     isComposing = true;
+    // Clear any pending reset — we're in the middle of IME input
+    if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
   });
 
   overlayInput.addEventListener('compositionend', () => {
@@ -657,7 +687,7 @@
     // Send the composed text (e.g. Chinese characters from pinyin IME)
     const text = overlayInput.value;
     if (text) wsSend(text);
-    overlayInput.value = '';
+    resetSentState();
     // Suppress the trailing `input` event that some browsers fire after compositionend
     requestAnimationFrame(() => { justFinishedComposition = false; });
   });
@@ -671,13 +701,16 @@
     if (e.inputType === 'deleteContentBackward') {
       e.preventDefault();
       wsSend('\x7f');  // DEL
-      overlayInput.value = '';
+      // Keep sentBuffer in sync: remove last char
+      sentBuffer = sentBuffer.slice(0, -1);
+      overlayInput.value = overlayInput.value.slice(0, -1);
     } else if (e.inputType === 'deleteContentForward') {
       e.preventDefault();
       wsSend('\x1b[3~');  // Forward delete escape sequence
     } else if (e.inputType === 'insertLineBreak') {
       e.preventDefault();
       wsSend('\r');
+      resetSentState();
     }
   });
 
@@ -685,10 +718,39 @@
     if (isComposing) return;
     if (justFinishedComposition) return;
     if (keydownHandled) { keydownHandled = false; return; }
-    // Non-IME input: send immediately for real-time tab completion etc.
-    const text = overlayInput.value;
-    if (text) wsSend(text);
-    overlayInput.value = '';
+
+    const current = overlayInput.value;
+
+    if (current.startsWith(sentBuffer)) {
+      // Normal typing: textarea value grew by appending new chars.
+      // Only send the characters we haven't sent yet.
+      const newChars = current.slice(sentBuffer.length);
+      if (newChars) wsSend(newChars);
+      sentBuffer = current;
+    } else {
+      // Replacement happened (autocomplete suggestion tapped).
+      // The keyboard replaced some/all of the typed text with the suggestion.
+      // We need to undo what we already sent, then send the replacement.
+      //
+      // Find the longest common prefix between sentBuffer and current value
+      // to minimize the number of backspaces needed.
+      let commonLen = 0;
+      const minLen = Math.min(sentBuffer.length, current.length);
+      while (commonLen < minLen && sentBuffer[commonLen] === current[commonLen]) {
+        commonLen++;
+      }
+      // Delete chars after the common prefix that were already sent
+      const charsToDelete = sentBuffer.length - commonLen;
+      for (let i = 0; i < charsToDelete; i++) wsSend('\x7f');
+      // Send the new chars after the common prefix
+      const newPart = current.slice(commonLen);
+      if (newPart) wsSend(newPart);
+      sentBuffer = current;
+    }
+
+    // Don't clear overlayInput.value — we need it to detect future replacements.
+    // Instead, schedule a deferred reset to prevent unbounded growth.
+    scheduleReset();
   });
 
   overlayInput.addEventListener('keydown', (e) => {
@@ -703,13 +765,17 @@
       e.preventDefault();
       wsSend(KEY_MAP[e.key]);
       keydownHandled = true;
+      // Enter sends \r — reset tracking state since we're starting a new input context
+      if (e.key === 'Enter') resetSentState();
       return;
     }
 
     if (e.key === 'Backspace') {
       e.preventDefault();
       wsSend('\x7f');
-      overlayInput.value = '';
+      // Keep sentBuffer in sync with the deletion
+      sentBuffer = sentBuffer.slice(0, -1);
+      overlayInput.value = overlayInput.value.slice(0, -1);
       keydownHandled = true;
     } else if (e.key === 'Delete') {
       e.preventDefault();
