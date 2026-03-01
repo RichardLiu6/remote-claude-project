@@ -387,7 +387,13 @@
     }
     // Trim trailing empty lines
     while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
-    selectOverlay.textContent = lines.join('\n');
+    // Linkify URLs so they're tappable on mobile
+    const urlRe = /https?:\/\/[^\s<>"')\]]+/g;
+    const escaped = lines.join('\n')
+      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    selectOverlay.innerHTML = escaped.replace(urlRe, m =>
+      `<a href="${m}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">${m}</a>`
+    );
     // Match terminal font size
     selectOverlay.style.fontSize = (term.options.fontSize || 12) + 'px';
     selectOverlay.style.display = 'block';
@@ -458,6 +464,29 @@
       adjustQuickBarPosition();
     });
     quickBar.appendChild(doneBtn);
+
+    // "Paste" button — fetches Mac clipboard via /api/clipboard, writes to phone clipboard
+    const pasteBtn = document.createElement('button');
+    pasteBtn.textContent = 'Paste';
+    pasteBtn.setAttribute('aria-label', 'Copy Mac clipboard to phone');
+    pasteBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
+    pasteBtn.addEventListener('click', async () => {
+      try {
+        pasteBtn.textContent = '...';
+        const res = await fetch('/api/clipboard');
+        const { text } = await res.json();
+        if (text) {
+          await navigator.clipboard.writeText(text);
+          pasteBtn.textContent = 'OK!';
+        } else {
+          pasteBtn.textContent = 'Empty';
+        }
+      } catch {
+        pasteBtn.textContent = 'Fail';
+      }
+      setTimeout(() => { pasteBtn.textContent = 'Paste'; }, 1500);
+    });
+    quickBar.appendChild(pasteBtn);
   }
 
   // --- Viewport / keyboard adjustment ---

@@ -42,6 +42,16 @@ app.get('/voice-event', (req, res) => {
   res.json(lastVoiceEvent || { text: null });
 });
 
+// --- Clipboard bridge (Mac pbpaste → phone browser) ---
+app.get('/api/clipboard', (req, res) => {
+  try {
+    const text = execSync('pbpaste', { encoding: 'utf-8', timeout: 2000 });
+    res.json({ text });
+  } catch {
+    res.json({ text: '', error: 'pbpaste failed' });
+  }
+});
+
 // --- Resize debug API ---
 app.get('/api/debug/resize', (req, res) => {
   const clients = [];
