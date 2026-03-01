@@ -42,6 +42,20 @@ app.get('/voice-event', (req, res) => {
   res.json(lastVoiceEvent || { text: null });
 });
 
+// --- Resize debug API ---
+app.get('/api/debug/resize', (req, res) => {
+  const clients = [];
+  wss.clients.forEach(ws => {
+    clients.push({
+      session: ws.sessionName,
+      ptyCols: ws._ptyCols,
+      ptyRows: ws._ptyRows,
+      lastResizeAt: ws._lastResizeAt,
+    });
+  });
+  res.json({ clients });
+});
+
 // --- WebSocket Terminal ---
 
 const wss = new WebSocketServer({ noServer: true });
@@ -66,12 +80,21 @@ wss.on('connection', (ws) => {
     return;
   }
 
+  console.log(`[ws] new connection for session="${session}"`);
+
   const pty = spawn('/opt/homebrew/bin/tmux', ['attach', '-t', session], {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
     env: { ...process.env, TERM: 'xterm-256color' },
   });
+
+  // Track resize state on ws object for debug API
+  ws._ptyCols = 80;
+  ws._ptyRows = 24;
+  ws._lastResizeAt = null;
+
+  console.log(`[ws] pty spawned with initial size 80x24, pid=${pty.pid}`);
 
   pty.onData((data) => {
     if (ws.readyState === ws.OPEN) ws.send(data);
@@ -83,8 +106,14 @@ wss.on('connection', (ws) => {
     if (str.startsWith('\x01resize:')) {
       try {
         const { cols, rows } = JSON.parse(str.slice(8));
+        console.log(`[resize] session="${session}" ${ws._ptyCols}x${ws._ptyRows} → ${cols}x${rows}`);
         pty.resize(cols, rows);
-      } catch {}
+        ws._ptyCols = cols;
+        ws._ptyRows = rows;
+        ws._lastResizeAt = new Date().toISOString();
+      } catch (e) {
+        console.error(`[resize] parse error:`, e.message);
+      }
       return;
     }
     pty.write(str);
@@ -98,6 +127,7 @@ wss.on('connection', (ws) => {
   });
 
   ws.on('close', () => {
+    console.log(`[ws] closed for session="${session}", killing pty pid=${pty.pid}`);
     pty.kill();
   });
 });
