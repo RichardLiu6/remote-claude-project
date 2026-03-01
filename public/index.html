@@ -250,11 +250,18 @@
       line-height: 1.6;
     }
 
-    /* Picker refresh button override */
-    #picker button {
+    /* Picker action button */
+    .picker-btn {
+      padding: 10px 24px;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
       min-height: 44px;
       min-width: 120px;
     }
+    .picker-btn:active { opacity: 0.8; }
 
     /* Responsive: slightly larger text on wider phones */
     @media (min-width: 390px) {
@@ -306,9 +313,11 @@
   const RECONNECT_BASE_DELAY = 1000;
   let intentionalDisconnect = false;
 
-  // Resize handler references for cleanup
+  // Handler references for cleanup
   let resizeHandler = null;
   let vpResizeHandler = null;
+  let touchMoveHandler = null;
+  let touchMoveEl = null;
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -348,7 +357,7 @@
   function renderPicker(sessions) {
     if (!sessions.length) {
       picker.innerHTML = '<h2>Sessions</h2><p class="no-sessions">No tmux sessions running.<br>Use start-claude.sh to start one.</p>';
-      picker.innerHTML += '<button onclick="loadSessions()" style="padding:10px 24px;background:#533483;color:white;border:none;border-radius:6px;font-size:16px;cursor:pointer;">Refresh</button>';
+      picker.innerHTML += '<button class="picker-btn" style="background:#533483" onclick="loadSessions()">Refresh</button>';
       return;
     }
     let html = '<h2>Select Session</h2>';
@@ -359,7 +368,7 @@
         <div class="session-meta">started ${time} · ${s.windows} window(s)</div>
       </div>`;
     });
-    html += '<button onclick="loadSessions()" style="margin-top:8px;padding:10px 24px;background:#0f3460;color:white;border:none;border-radius:6px;font-size:14px;cursor:pointer;">Refresh</button>';
+    html += '<button class="picker-btn" style="margin-top:8px;background:#0f3460" onclick="loadSessions()">Refresh</button>';
     picker.innerHTML = html;
   }
 
@@ -443,10 +452,6 @@
       // onclose fires after onerror; reconnection handled there
     };
 
-    // Desktop: terminal keyboard input -> WebSocket
-    if (!isMobile && term) {
-      term.onData((data) => { wsSend(data); });
-    }
   }
 
   function connect(session) {
@@ -483,12 +488,16 @@
 
     // On mobile, prevent single-finger touch on terminal from scrolling history
     if (isMobile) {
-      const termEl = container.querySelector('.xterm');
-      if (termEl) {
-        termEl.addEventListener('touchmove', (e) => {
-          if (e.touches.length < 2) e.preventDefault();
-        }, { passive: false });
+      touchMoveEl = container.querySelector('.xterm');
+      if (touchMoveEl) {
+        touchMoveHandler = (e) => { if (e.touches.length < 2) e.preventDefault(); };
+        touchMoveEl.addEventListener('touchmove', touchMoveHandler, { passive: false });
       }
+    }
+
+    // Desktop: terminal keyboard input -> WebSocket (registered once per connect, not per reconnect)
+    if (!isMobile) {
+      term.onData((data) => { wsSend(data); });
     }
 
     // WebSocket connection
@@ -520,6 +529,11 @@
       window.visualViewport?.removeEventListener('resize', vpResizeHandler);
       vpResizeHandler = null;
     }
+    if (touchMoveHandler && touchMoveEl) {
+      touchMoveEl.removeEventListener('touchmove', touchMoveHandler);
+      touchMoveHandler = null;
+      touchMoveEl = null;
+    }
     fitAddon = null;
   }
 
@@ -545,6 +559,17 @@
   //   2. beforeinput handles Backspace/Enter via inputType when keydown misses
   //   3. input handles normal character insertion (non-IME)
   //   4. compositionstart/end handles IME (pinyin, etc.)
+
+  // Special key → terminal escape sequence (hoisted to avoid recreation per keydown)
+  const KEY_MAP = {
+    'Enter':      '\r',
+    'ArrowUp':    '\x1b[A',
+    'ArrowDown':  '\x1b[B',
+    'ArrowLeft':  '\x1b[D',
+    'ArrowRight': '\x1b[C',
+    'Tab':        '\t',
+    'Escape':     '\x1b',
+  };
 
   let justFinishedComposition = false;
   // Track whether keydown already handled the event this cycle
@@ -602,20 +627,9 @@
     // Skip those -- beforeinput will handle them instead.
     if (e.key === 'Unidentified' || e.key === 'Process') return;
 
-    // Map special keys to terminal escape sequences
-    const keyMap = {
-      'Enter':      '\r',
-      'ArrowUp':    '\x1b[A',
-      'ArrowDown':  '\x1b[B',
-      'ArrowLeft':  '\x1b[D',
-      'ArrowRight': '\x1b[C',
-      'Tab':        '\t',
-      'Escape':     '\x1b',
-    };
-
-    if (keyMap[e.key]) {
+    if (KEY_MAP[e.key]) {
       e.preventDefault();
-      wsSend(keyMap[e.key]);
+      wsSend(KEY_MAP[e.key]);
       keydownHandled = true;
       return;
     }
