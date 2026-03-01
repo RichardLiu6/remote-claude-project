@@ -283,6 +283,7 @@
     autocomplete="off" autocorrect="off" autocapitalize="off"
     spellcheck="false" enterkeyhint="send"
     aria-label="Terminal input"></textarea>
+  <input type="file" id="file-upload" accept="image/*" style="display:none">
 </div>
 
 <div id="quick-bar" role="toolbar" aria-label="Quick keys"></div>
@@ -341,6 +342,7 @@
   voicePlayer.setAttribute('preload', 'auto');
   document.body.appendChild(voicePlayer); // Must be in DOM for Chrome mobile
   let _speakerBtnRef = null; // set in buildQuickBar
+  let _uploadBtnRef = null;  // set in buildQuickBar
   let _pendingVoiceUrl = null; // store URL if play blocked
 
   function unlockAudio() {
@@ -460,10 +462,12 @@
   function buildQuickBar() {
     const keys = [
       { label: 'Tab',  seq: '\t' },
+      { label: '⇧Tab', seq: '\x1b[Z' },
+      { label: '←',    seq: '\x1b[D' },
+      { label: '→',    seq: '\x1b[C' },
       { label: '↑',    seq: '\x1b[A' },
       { label: '↓',    seq: '\x1b[B' },
       { label: '^C',   seq: '\x03' },
-      { label: '^Z',   seq: '\x1a' },
       { label: 'Esc',  seq: '\x1b' },
       { label: '/',    seq: '/' },
     ];
@@ -538,6 +542,17 @@
       setTimeout(() => { pasteBtn.textContent = 'Paste'; }, 1500);
     });
     quickBar.appendChild(pasteBtn);
+
+    // Upload button — send phone photos to remote Mac for Claude Code
+    const uploadBtn = document.createElement('button');
+    uploadBtn.textContent = '\u{1F4F7}';
+    uploadBtn.setAttribute('aria-label', 'Upload photo to remote');
+    _uploadBtnRef = uploadBtn;
+    uploadBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
+    uploadBtn.addEventListener('click', () => {
+      document.getElementById('file-upload').click();
+    });
+    quickBar.appendChild(uploadBtn);
 
     // Speaker toggle — mute/unmute voice playback
     const speakerBtn = document.createElement('button');
@@ -946,6 +961,38 @@
       wsSend('\x1b[3~');
       keydownHandled = true;
     }
+  });
+
+  // File upload handler — reads photo, sends base64 to server, auto-types path into terminal
+  document.getElementById('file-upload').addEventListener('change', async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    const btn = _uploadBtnRef;
+    if (btn) btn.textContent = '...';
+
+    const reader = new FileReader();
+    reader.onload = async () => {
+      const base64 = reader.result.split(',')[1];
+      try {
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: base64, filename: file.name })
+        });
+        const result = await res.json();
+        if (result.path) {
+          wsSend(result.path + ' ');
+          if (btn) btn.textContent = 'OK!';
+        } else {
+          if (btn) btn.textContent = 'Fail';
+        }
+      } catch {
+        if (btn) btn.textContent = 'Fail';
+      }
+      setTimeout(() => { if (btn) btn.textContent = '\u{1F4F7}'; }, 1500);
+      e.target.value = ''; // Reset so same file can be re-selected
+    };
+    reader.readAsDataURL(file);
   });
 
   // Switch session from dropdown

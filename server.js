@@ -12,7 +12,7 @@ const os = require('os');
 const app = express();
 const server = http.createServer(app);
 
-app.use(express.json());
+app.use(express.json({ limit: '25mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
 
 // --- Voice TTS setup ---
@@ -137,6 +137,25 @@ app.get('/api/clipboard', (req, res) => {
     res.json({ text });
   } catch {
     res.json({ text: '', error: 'pbpaste failed' });
+  }
+});
+
+// --- File upload (phone → Mac for Claude Code) ---
+app.post('/api/upload', (req, res) => {
+  const { data, filename } = req.body;
+  if (!data || !filename) return res.status(400).json({ error: 'missing data or filename' });
+  const ext = path.extname(filename).toLowerCase() || '.jpg';
+  const safeName = `cc-upload-${Date.now()}-${crypto.randomBytes(4).toString('hex')}${ext}`;
+  const dest = path.join('/tmp', safeName);
+  try {
+    const buf = Buffer.from(data, 'base64');
+    fs.writeFileSync(dest, buf);
+    console.log(`[upload] saved ${dest} (${buf.length} bytes)`);
+    // Auto-cleanup after 1 hour
+    setTimeout(() => fs.unlink(dest, () => {}), 60 * 60 * 1000);
+    res.json({ path: dest });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
   }
 });
 
