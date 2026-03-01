@@ -1,16 +1,48 @@
 const express = require('express');
 const { WebSocketServer } = require('ws');
 const { spawn } = require('node-pty');
-const { execSync } = require('child_process');
+const { execSync, execFile } = require('child_process');
 const http = require('http');
 const path = require('path');
 const url = require('url');
+const fs = require('fs');
+const crypto = require('crypto');
+const os = require('os');
 
 const app = express();
 const server = http.createServer(app);
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
+
+// --- Voice TTS setup ---
+const audioDir = path.join(__dirname, 'public', 'audio');
+fs.mkdirSync(audioDir, { recursive: true });
+// Cleanup stale audio files from previous runs
+fs.readdir(audioDir, (err, files) => {
+  if (err) return;
+  files.filter(f => f.endsWith('.mp3')).forEach(f => {
+    fs.unlink(path.join(audioDir, f), () => {});
+  });
+});
+// Generate a tiny silent WAV for Chrome mobile audio unlock
+(function createSilenceWav() {
+  const silencePath = path.join(audioDir, 'silence.wav');
+  if (fs.existsSync(silencePath)) return;
+  const sampleRate = 22050, numSamples = Math.floor(sampleRate * 0.05); // 50ms
+  const dataSize = numSamples * 2;
+  const buf = Buffer.alloc(44 + dataSize); // data stays zeroed = silence
+  buf.write('RIFF', 0); buf.writeUInt32LE(36 + dataSize, 4);
+  buf.write('WAVE', 8); buf.write('fmt ', 12);
+  buf.writeUInt32LE(16, 16); buf.writeUInt16LE(1, 20); // PCM
+  buf.writeUInt16LE(1, 22); buf.writeUInt32LE(sampleRate, 24);
+  buf.writeUInt32LE(sampleRate * 2, 28); buf.writeUInt16LE(2, 32);
+  buf.writeUInt16LE(16, 34); buf.write('data', 36);
+  buf.writeUInt32LE(dataSize, 40);
+  fs.writeFileSync(silencePath, buf);
+  console.log('[voice] created silence.wav for audio unlock');
+})();
+let ttsInFlight = false;
 
 // --- REST API ---
 
@@ -31,15 +63,71 @@ app.get('/api/sessions', (req, res) => {
   }
 });
 
-// Voice event endpoint (placeholder for C1 Hook push)
+// --- Voice TTS endpoint ---
 let lastVoiceEvent = null;
+
+function broadcastVoice(payload) {
+  const msg = '\x01voice:' + JSON.stringify(payload);
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(msg);
+  });
+}
+
 app.post('/voice-event', (req, res) => {
-  lastVoiceEvent = { text: req.body.text, timestamp: Date.now() };
-  res.json({ ok: true });
+  const text = (req.body.text || '').slice(0, 200).trim();
+  if (!text) return res.status(400).json({ ok: false, error: 'empty text' });
+
+  if (ttsInFlight) return res.status(429).json({ ok: false, error: 'TTS in progress' });
+  ttsInFlight = true;
+
+  const filename = `voice-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.mp3`;
+  const outputPath = path.join(audioDir, filename);
+
+  console.log(`[voice] generating TTS: "${text.slice(0, 40)}..."`);
+
+  execFile('/opt/homebrew/bin/python3.13',
+    ['-m', 'edge_tts', '--text', text, '--voice', 'zh-CN-XiaoyiNeural', '--write-media', outputPath],
+    { timeout: 15000 },
+    (err) => {
+      ttsInFlight = false;
+      if (err) {
+        console.error('[voice] edge-tts error:', err.message);
+        fs.unlink(outputPath, () => {});
+        return;
+      }
+      const audioUrl = `/audio/${filename}`;
+      lastVoiceEvent = { text, url: audioUrl, timestamp: Date.now() };
+      console.log(`[voice] broadcast: ${audioUrl}`);
+      broadcastVoice({ url: audioUrl, text });
+      // Auto-cleanup after 5 minutes
+      setTimeout(() => fs.unlink(outputPath, () => {}), 5 * 60 * 1000);
+    }
+  );
+
+  res.json({ ok: true, status: 'generating' });
 });
 
 app.get('/voice-event', (req, res) => {
   res.json(lastVoiceEvent || { text: null });
+});
+
+// --- Voice toggle API ---
+const voiceFlagPath = path.join(os.homedir(), '.claude', 'voice-mode');
+
+app.get('/api/voice-status', (req, res) => {
+  res.json({ enabled: fs.existsSync(voiceFlagPath) });
+});
+
+app.post('/api/voice-toggle', (req, res) => {
+  const enabled = req.body.enabled;
+  try {
+    if (enabled) {
+      fs.writeFileSync(voiceFlagPath, '');
+    } else {
+      fs.unlinkSync(voiceFlagPath);
+    }
+  } catch {}
+  res.json({ enabled: fs.existsSync(voiceFlagPath) });
 });
 
 // --- Clipboard bridge (Mac pbpaste → phone browser) ---

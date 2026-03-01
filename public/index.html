@@ -333,6 +333,57 @@
     return false;
   }
 
+  // --- Voice playback ---
+  let voiceEnabled = true;
+  let audioUnlocked = false;
+  const voicePlayer = document.createElement('audio');
+  voicePlayer.setAttribute('playsinline', '');
+  voicePlayer.setAttribute('preload', 'auto');
+  document.body.appendChild(voicePlayer); // Must be in DOM for Chrome mobile
+  let _speakerBtnRef = null; // set in buildQuickBar
+  let _pendingVoiceUrl = null; // store URL if play blocked
+
+  function unlockAudio() {
+    if (!audioUnlocked) {
+      // Play a real silent WAV from server to unlock Chrome mobile audio.
+      // Data URIs don't reliably register as user-gesture-activated on Chrome.
+      voicePlayer.src = '/audio/silence.wav';
+      voicePlayer.play().then(() => {
+        audioUnlocked = true;
+        console.log('[voice] audio unlocked via silence.wav');
+        // If a voice event arrived before unlock, play it now
+        if (_pendingVoiceUrl) {
+          voicePlayer.src = _pendingVoiceUrl;
+          voicePlayer.play().catch(() => {});
+          _pendingVoiceUrl = null;
+        }
+      }).catch(() => {
+        console.log('[voice] silence.wav play failed');
+      });
+      return;
+    }
+    if (_pendingVoiceUrl) {
+      voicePlayer.src = _pendingVoiceUrl;
+      voicePlayer.play().catch(() => {});
+      _pendingVoiceUrl = null;
+    }
+  }
+
+  function handleVoiceEvent(payload) {
+    if (!payload.url) return;
+    // Flash speaker button to show voice arrived
+    if (_speakerBtnRef) {
+      _speakerBtnRef.style.background = '#4a4';
+      setTimeout(() => { _speakerBtnRef.style.background = ''; }, 800);
+    }
+    if (!voiceEnabled) return;
+    voicePlayer.src = payload.url;
+    voicePlayer.play().then(() => { audioUnlocked = true; }).catch(() => {
+      // If blocked, store for next user tap
+      _pendingVoiceUrl = payload.url;
+    });
+  }
+
   async function loadSessions() {
     try {
       const res = await fetch('/api/sessions');
@@ -424,7 +475,7 @@
       // Use mousedown + preventDefault to keep overlay focused (keyboard stays open)
       // without blocking the browser's native horizontal touch-scroll on the quick-bar.
       btn.addEventListener('mousedown', (e) => { e.preventDefault(); });
-      btn.addEventListener('click', (e) => { sendKey(k.seq); });
+      btn.addEventListener('click', (e) => { unlockAudio(); sendKey(k.seq); });
       quickBar.appendChild(btn);
     });
     // "Select" button — toggle text selection mode
@@ -487,6 +538,21 @@
       setTimeout(() => { pasteBtn.textContent = 'Paste'; }, 1500);
     });
     quickBar.appendChild(pasteBtn);
+
+    // Speaker toggle — mute/unmute voice playback
+    const speakerBtn = document.createElement('button');
+    speakerBtn.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
+    speakerBtn.setAttribute('aria-label', 'Toggle voice playback');
+    _speakerBtnRef = speakerBtn;
+    speakerBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
+    speakerBtn.addEventListener('click', () => {
+      voiceEnabled = !voiceEnabled;
+      speakerBtn.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
+      speakerBtn.style.opacity = voiceEnabled ? '1' : '0.5';
+      unlockAudio();
+      if (!voiceEnabled) { voicePlayer.pause(); }
+    });
+    quickBar.appendChild(speakerBtn);
   }
 
   // --- Viewport / keyboard adjustment ---
@@ -568,6 +634,10 @@
 
     ws.onmessage = (e) => {
       const data = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
+      if (data.startsWith('\x01voice:')) {
+        try { handleVoiceEvent(JSON.parse(data.slice(7))); } catch {}
+        return;
+      }
       if (term) term.write(data);
     };
 
@@ -600,6 +670,7 @@
   }
 
   function connect(session) {
+    unlockAudio(); // Unlock iOS audio on user-gesture (session card tap)
     // Clean up previous connection without returning to picker
     if (ws || term) {
       intentionalDisconnect = true;
