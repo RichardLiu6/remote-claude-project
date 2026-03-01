@@ -465,10 +465,10 @@
     });
     quickBar.appendChild(doneBtn);
 
-    // "Paste" button — fetches Mac clipboard via /api/clipboard, writes to phone clipboard
+    // "Paste" button — fetches Mac clipboard via /api/clipboard, types it into terminal
     const pasteBtn = document.createElement('button');
     pasteBtn.textContent = 'Paste';
-    pasteBtn.setAttribute('aria-label', 'Copy Mac clipboard to phone');
+    pasteBtn.setAttribute('aria-label', 'Paste Mac clipboard into terminal');
     pasteBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
     pasteBtn.addEventListener('click', async () => {
       try {
@@ -476,7 +476,7 @@
         const res = await fetch('/api/clipboard');
         const { text } = await res.json();
         if (text) {
-          await navigator.clipboard.writeText(text);
+          wsSend(text);
           pasteBtn.textContent = 'OK!';
         } else {
           pasteBtn.textContent = 'Empty';
