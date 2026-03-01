@@ -23,21 +23,35 @@ Phone Browser (http://Tailscale-IP:8022)
 ```bash
 node server.js           # Start server on port 8022
 npm install              # Install deps (express, ws, node-pty)
+bash tests/test-cold-start.sh  # Test cold-start scenario (kills existing sessions)
 ```
 
-No build step. No tests. No bundler.
+No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` → `./start-claude.sh`.
 
 ## Key Design Decisions
 
 - **node-pty uses absolute tmux path** `/opt/homebrew/bin/tmux` (node-pty doesn't inherit shell PATH)
 - **Port 8022** (avoids conflict with dev servers on 3000)
-- **Mobile input**: xterm `disableStdin: true` on mobile; transparent overlay textarea on terminal area (tap → keyboard opens, type → WS send). Floating quick-bar (Tab/^C/Done etc.) positioned above keyboard via visualViewport API. Three-layer event handling (keydown → beforeinput → input) for IME + Android keyCode 229 compatibility
 - **On-demand lifecycle**: `~/start-claude.sh` starts/stops the web terminal server alongside tmux sessions
-- **tmux `window-size smallest`**: dots appear if multiple clients with different sizes connect to the same session — use one device per session
+- **tmux mouse off per-pane**: server.js runs `tmux set-option -t session -p mouse off` on connect so xterm.js handles selection/scroll natively (tmux `mouse on` hijacks mouse events)
+- **tmux `window-size smallest`**: dots appear if multiple clients with different sizes connect — use one device per session
 
-## node-pty Gotcha
+## Mobile Input System
 
-The `spawn-helper` binary at `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` must have execute permission. If `posix_spawnp failed`, run:
+- xterm `disableStdin: true` on mobile; transparent off-screen textarea captures keyboard input
+- Floating quick-bar (Tab/^C/Esc/Select/Done) above keyboard via visualViewport API; uses `mousedown` preventDefault (not `touchstart`) to keep keyboard open without blocking horizontal scroll
+- Three-layer event handling: keydown → beforeinput → input for IME + Android keyCode 229 compatibility
+- **sentBuffer tracking**: prevents English autocomplete duplicates — tracks chars already sent, detects keyboard replacement via common-prefix diff, sends minimal backspaces before replacement text
+- **Select mode**: overlays a native-selectable `<div>` with terminal buffer text over the canvas (canvas doesn't support native text selection). Quick-bar stays visible in Select mode
+- **Dynamic font sizing**: after `fitAddon.fit()`, if `term.cols < 70`, fontSize auto-reduces (14→10) to fit config screens. Mobile padding reduced to 2px
+
+## Gotchas
+
+**node-pty spawn-helper**: The binary at `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` must have execute permission. If `posix_spawnp failed`:
 ```bash
 chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
 ```
+
+**CJK rendering**: node-pty env must include `LANG` and `LC_ALL` (nohup-started processes lose locale). Both `start-claude.sh` (`export LANG`) and `server.js` (node-pty env option) set these explicitly. Without them, Chinese characters render as underscores.
+
+**SSH cold-start**: `start_web_terminal()` in start-claude.sh uses double-subshell with full fd redirect `(cd ... && nohup node server.js </dev/null >/dev/null 2>&1 &) </dev/null >/dev/null 2>&1` — required because iOS Shortcuts SSH tracks child process file descriptors and hangs otherwise.
