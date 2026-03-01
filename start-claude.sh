@@ -8,6 +8,12 @@ export LANG="${LANG:-en_US.UTF-8}"
 PROJECT="${1:-default}"
 SKIP_MODE="${2:-normal}"
 
+# 按需加载 SSH key（跟随 server 生命周期，锁屏不影响）
+if ! ssh-add -l &>/dev/null; then
+  echo "SSH key not loaded, adding..."
+  ssh-add ~/.ssh/id_ed25519 2>/dev/null || true
+fi
+
 # Web Terminal 配置
 WEB_TERMINAL_DIR=~/Documents/LIG_ALL/实时更新学习Claude/remote-claude-project
 WEB_TERMINAL_PORT=8022
@@ -31,7 +37,8 @@ stop_web_terminal_if_idle() {
   remaining=$(tmux list-sessions 2>/dev/null | wc -l | tr -d ' ')
   if [ "$remaining" -eq 0 ]; then
     pkill -f "node.*server.js" 2>/dev/null
-    echo "Web terminal stopped (no sessions)"
+    ssh-add -d ~/.ssh/id_ed25519 2>/dev/null
+    echo "Web terminal stopped (no sessions), SSH key removed"
   fi
 }
 
