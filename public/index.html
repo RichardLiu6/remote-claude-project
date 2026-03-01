@@ -172,6 +172,25 @@
       border-color: #2a9d6f;
     }
 
+    /* Selectable text overlay for mobile Select mode */
+    #select-overlay {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 10;
+      background: rgba(26, 26, 46, 0.95);
+      color: #e0e0e0;
+      font-family: Menlo, Monaco, 'Courier New', monospace;
+      font-size: 12px;
+      line-height: 1.2;
+      white-space: pre;
+      overflow: auto;
+      -webkit-overflow-scrolling: touch;
+      -webkit-user-select: text;
+      user-select: text;
+      padding: 4px 2px;
+      display: none;
+    }
+
     /* Session picker */
     #picker {
       display: flex;
@@ -259,6 +278,7 @@
 <div id="status" aria-live="polite" aria-atomic="true"></div>
 <div id="terminal-container">
   <div id="picker"><h2>Loading sessions...</h2></div>
+  <div id="select-overlay"></div>
   <textarea id="overlay-input"
     autocomplete="off" autocorrect="off" autocapitalize="off"
     spellcheck="false" enterkeyhint="send"
@@ -297,6 +317,7 @@
   const sessionSelect = document.getElementById('session-select');
   const overlayInput = document.getElementById('overlay-input');
   const quickBar = document.getElementById('quick-bar');
+  const selectOverlay = document.getElementById('select-overlay');
 
   function setStatus(text, cls) {
     statusEl.textContent = text;
@@ -353,6 +374,30 @@
     if (isMobile) overlayInput.focus();
   }
 
+  // --- Select mode: selectable text overlay ---
+  // Reads terminal buffer content and shows it in a native-selectable div
+  // so iOS long-press text selection works (canvas doesn't support native select).
+  function showSelectOverlay() {
+    if (!term) return;
+    const buf = term.buffer.active;
+    const lines = [];
+    for (let i = 0; i < buf.length; i++) {
+      const line = buf.getLine(i);
+      if (line) lines.push(line.translateToString(true));
+    }
+    // Trim trailing empty lines
+    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
+    selectOverlay.textContent = lines.join('\n');
+    // Match terminal font size
+    selectOverlay.style.fontSize = (term.options.fontSize || 12) + 'px';
+    selectOverlay.style.display = 'block';
+  }
+
+  function hideSelectOverlay() {
+    selectOverlay.style.display = 'none';
+    selectOverlay.textContent = '';
+  }
+
   // Build quick-bar buttons (called once; buttons use mousedown to prevent blur
   // without blocking native horizontal touch-scroll on the quick-bar)
   function buildQuickBar() {
@@ -388,7 +433,14 @@
     selBtn.addEventListener('click', () => {
       selectMode = !selectMode;
       updateSelBtn();
-      if (selectMode) overlayInput.blur();
+      if (selectMode) {
+        overlayInput.blur();
+        showSelectOverlay(); // Show native-selectable text over canvas
+      } else {
+        hideSelectOverlay();
+        overlayInput.focus();
+      }
+      adjustQuickBarPosition();
     });
     quickBar.appendChild(selBtn);
 
@@ -401,7 +453,9 @@
     doneBtn.addEventListener('click', () => {
       selectMode = false;
       updateSelBtn();
+      hideSelectOverlay();
       overlayInput.blur();
+      adjustQuickBarPosition();
     });
     quickBar.appendChild(doneBtn);
   }
@@ -420,6 +474,15 @@
       const topbarH = document.getElementById('topbar').offsetHeight || 48;
       const statusH = document.getElementById('status').offsetHeight || 20;
       // Explicit height = viewport minus topbar/status minus quick-bar
+      container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
+      container.style.flex = 'none';
+    } else if (selectMode) {
+      // Keyboard closed BUT select mode active — keep quick-bar visible at bottom
+      quickBar.style.display = 'flex';
+      quickBar.style.bottom = '0';
+      const qbH = quickBar.offsetHeight || 44;
+      const topbarH = document.getElementById('topbar').offsetHeight || 48;
+      const statusH = document.getElementById('status').offsetHeight || 20;
       container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
       container.style.flex = 'none';
     } else {
@@ -607,7 +670,8 @@
     }
     fitAddon = null;
     selectMode = false;
-    // Hide mobile overlay + quick-bar, restore flex layout
+    // Hide mobile overlay + quick-bar + select overlay, restore flex layout
+    hideSelectOverlay();
     overlayInput.style.display = 'none';
     quickBar.style.display = 'none';
     container.style.height = '';
