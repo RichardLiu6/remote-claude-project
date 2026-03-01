@@ -86,7 +86,7 @@ app.post('/voice-event', (req, res) => {
   console.log(`[voice] generating TTS: "${text.slice(0, 40)}..."`);
 
   execFile('/opt/homebrew/bin/python3.13',
-    ['-m', 'edge_tts', '--text', text, '--voice', 'zh-CN-XiaoyiNeural', '--write-media', outputPath],
+    ['-m', 'edge_tts', '--text', text, '--voice', 'zh-CN-XiaoxiaoNeural', '--write-media', outputPath],
     { timeout: 15000 },
     (err) => {
       ttsInFlight = false;
