@@ -16,9 +16,10 @@
       display: flex;
       flex-direction: column;
       overflow: hidden;
-      /* Prevent rubber-band scrolling on iOS */
+      /* Prevent rubber-band scrolling on iOS — CSS only, no JS preventDefault */
       position: fixed;
       width: 100%;
+      overscroll-behavior: none;
     }
 
     /* Top bar */
@@ -277,8 +278,6 @@
   // Handler references for cleanup
   let resizeHandler = null;
   let vpResizeHandler = null;
-  let touchMoveHandler = null;
-  let touchMoveEl = null;
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -390,20 +389,24 @@
     const fullH = window.innerHeight;
     const kbHeight = fullH - vvh - window.visualViewport.offsetTop;
     if (kbHeight > 50) {
-      // Keyboard is open
+      // Keyboard is open — shrink container to fit above keyboard + quick-bar
       quickBar.style.display = 'flex';
       quickBar.style.bottom = kbHeight + 'px';
-      container.style.paddingBottom = (kbHeight + quickBar.offsetHeight) + 'px';
-      // Re-fit terminal to available space
-      if (fitAddon) fitAddon.fit();
-      if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+      const qbH = quickBar.offsetHeight || 44;
+      const topbarH = document.getElementById('topbar').offsetHeight || 48;
+      const statusH = document.getElementById('status').offsetHeight || 20;
+      // Explicit height = viewport minus topbar/status minus quick-bar
+      container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
+      container.style.flex = 'none';
     } else {
-      // Keyboard is closed
+      // Keyboard is closed — restore flex layout
       quickBar.style.display = 'none';
-      container.style.paddingBottom = '0';
-      if (fitAddon) fitAddon.fit();
-      if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+      container.style.height = '';
+      container.style.flex = '1';
     }
+    // Re-fit terminal to new container size
+    if (fitAddon) fitAddon.fit();
+    if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
   }
 
   // --- Reconnection logic ---
@@ -489,7 +492,7 @@
     // Init xterm
     term = new Terminal({
       fontSize: 14,
-      fontFamily: 'Menlo, Monaco, monospace',
+      fontFamily: 'Menlo, Monaco, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", monospace',
       theme: { background: '#1a1a2e' },
       cursorBlink: true,
       convertEol: true,
@@ -502,14 +505,8 @@
     term.open(container);
     fitAddon.fit();
 
-    // On mobile, prevent single-finger touch on terminal from scrolling history
-    if (isMobile) {
-      touchMoveEl = container.querySelector('.xterm');
-      if (touchMoveEl) {
-        touchMoveHandler = (e) => { if (e.touches.length < 2) e.preventDefault(); };
-        touchMoveEl.addEventListener('touchmove', touchMoveHandler, { passive: false });
-      }
-    }
+    // Mobile scroll: xterm-viewport handles its own scroll via touch.
+    // Bounce prevention is done via CSS overscroll-behavior: none on body.
 
     // Desktop: terminal keyboard input -> WebSocket (registered once per connect, not per reconnect)
     if (!isMobile) {
@@ -559,16 +556,12 @@
       window.visualViewport?.removeEventListener('scroll', vpResizeHandler);
       vpResizeHandler = null;
     }
-    if (touchMoveHandler && touchMoveEl) {
-      touchMoveEl.removeEventListener('touchmove', touchMoveHandler);
-      touchMoveHandler = null;
-      touchMoveEl = null;
-    }
     fitAddon = null;
-    // Hide mobile overlay + quick-bar, reset padding
+    // Hide mobile overlay + quick-bar, restore flex layout
     overlayInput.style.display = 'none';
     quickBar.style.display = 'none';
-    container.style.paddingBottom = '0';
+    container.style.height = '';
+    container.style.flex = '1';
   }
 
   function disconnect() {

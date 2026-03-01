@@ -86,7 +86,7 @@ wss.on('connection', (ws) => {
     name: 'xterm-256color',
     cols: 80,
     rows: 24,
-    env: { ...process.env, TERM: 'xterm-256color' },
+    env: { ...process.env, TERM: 'xterm-256color', LANG: process.env.LANG || 'en_US.UTF-8', LC_ALL: process.env.LC_ALL || 'en_US.UTF-8' },
   });
 
   // Track resize state on ws object for debug API

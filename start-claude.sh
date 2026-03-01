@@ -3,6 +3,7 @@
 # 示例: ~/start-claude.sh ABL_work skip
 
 export PATH="/opt/homebrew/bin:$PATH"
+export LANG="${LANG:-en_US.UTF-8}"
 
 PROJECT="${1:-default}"
 SKIP_MODE="${2:-normal}"
