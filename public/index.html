@@ -163,6 +163,11 @@
       color: #ffffff;
       border-color: #6a42a0;
     }
+    #quick-bar .select-btn.active {
+      background: #1e6f50;
+      color: #ffffff;
+      border-color: #2a9d6f;
+    }
 
     /* Session picker */
     #picker {
@@ -278,6 +283,7 @@
   // Handler references for cleanup
   let resizeHandler = null;
   let vpResizeHandler = null;
+  let selectMode = false;  // When true, taps allow text selection instead of opening keyboard
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -369,16 +375,45 @@
       btn.addEventListener('click', (e) => { sendKey(k.seq); });
       quickBar.appendChild(btn);
     });
-    // "Done" button — blurs overlay to dismiss keyboard
+    // "Select" button — toggle text selection mode
+    const selBtn = document.createElement('button');
+    selBtn.textContent = 'Select';
+    selBtn.setAttribute('aria-label', 'Toggle text selection mode');
+    function updateSelBtn() {
+      selBtn.className = selectMode ? 'select-btn active' : 'select-btn';
+      selBtn.textContent = selectMode ? 'Select ✓' : 'Select';
+    }
+    selBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      selectMode = !selectMode;
+      updateSelBtn();
+      if (selectMode) {
+        overlayInput.blur();  // Dismiss keyboard to allow selection
+      }
+    });
+    selBtn.addEventListener('click', () => {
+      selectMode = !selectMode;
+      updateSelBtn();
+      if (selectMode) overlayInput.blur();
+    });
+    quickBar.appendChild(selBtn);
+
+    // "Done" button — blurs overlay to dismiss keyboard, exits select mode
     const doneBtn = document.createElement('button');
     doneBtn.textContent = 'Done';
     doneBtn.className = 'done-btn';
     doneBtn.setAttribute('aria-label', 'Dismiss keyboard');
     doneBtn.addEventListener('touchstart', (e) => {
       e.preventDefault();
+      selectMode = false;
+      updateSelBtn();
       overlayInput.blur();
     });
-    doneBtn.addEventListener('click', () => { overlayInput.blur(); });
+    doneBtn.addEventListener('click', () => {
+      selectMode = false;
+      updateSelBtn();
+      overlayInput.blur();
+    });
     quickBar.appendChild(doneBtn);
   }
 
@@ -513,9 +548,20 @@
       term.onData((data) => { wsSend(data); });
     }
 
-    // Mobile: tap terminal area → focus overlay → keyboard opens
+    // Auto-copy: when text is selected (even briefly before tmux clears it),
+    // immediately copy to clipboard. Works on both desktop and mobile.
+    term.onSelectionChange(() => {
+      const sel = term.getSelection();
+      if (sel) {
+        navigator.clipboard.writeText(sel).catch(() => {});
+      }
+    });
+
+    // Mobile: tap terminal area → focus overlay → keyboard opens (unless in select mode)
     if (isMobile) {
-      container.addEventListener('click', () => { overlayInput.focus(); });
+      container.addEventListener('click', () => {
+        if (!selectMode) overlayInput.focus();
+      });
     }
 
     // WebSocket connection
@@ -557,6 +603,7 @@
       vpResizeHandler = null;
     }
     fitAddon = null;
+    selectMode = false;
     // Hide mobile overlay + quick-bar, restore flex layout
     overlayInput.style.display = 'none';
     quickBar.style.display = 'none';

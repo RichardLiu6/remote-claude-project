@@ -89,6 +89,12 @@ wss.on('connection', (ws) => {
     env: { ...process.env, TERM: 'xterm-256color', LANG: process.env.LANG || 'en_US.UTF-8', LC_ALL: process.env.LC_ALL || 'en_US.UTF-8' },
   });
 
+  // Disable tmux mouse for this pane so xterm.js handles selection/scroll natively.
+  // Run as a separate tmux command (not through the pty, which would type into CC).
+  try {
+    execSync(`/opt/homebrew/bin/tmux set-option -t "${session}" -p mouse off 2>/dev/null`);
+  } catch {}
+
   // Track resize state on ws object for debug API
   ws._ptyCols = 80;
   ws._ptyRows = 24;
