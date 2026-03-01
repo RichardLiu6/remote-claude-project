@@ -45,6 +45,10 @@ No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` â
 - **Select mode**: overlays a native-selectable `<div>` with terminal buffer text over the canvas (canvas doesn't support native text selection). Quick-bar stays visible in Select mode
 - **Dynamic font sizing**: after `fitAddon.fit()`, if `term.cols < 70`, fontSize auto-reduces (14â†’10) to fit config screens. Mobile padding reduced to 2px
 
+## Session Startup Rule
+
+Every session in this project MUST begin by reading `remote-claude-setup-guide.md` to understand the current state of the remote workflow, and update it when changes are made to architecture, scripts, or design decisions.
+
 ## Gotchas
 
 **node-pty spawn-helper**: The binary at `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` must have execute permission. If `posix_spawnp failed`:

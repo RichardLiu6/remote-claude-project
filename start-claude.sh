@@ -88,6 +88,7 @@ case "$PROJECT" in
     Richard所有信息-ai整理版)   DIR=~/Desktop/Richard所有信息-ai整理版;   ALIAS="richard" ;;
     ABL_work)                   DIR=~/Documents/ABL_work;                  ALIAS="abl" ;;
     实时更新学习Claude)          DIR=~/Documents/LIG_ALL/实时更新学习Claude; ALIAS="claude-learn" ;;
+    remote-claude-project)      DIR=~/Documents/LIG_ALL/实时更新学习Claude/remote-claude-project; ALIAS="remote-cc" ;;
     *)                          echo "Unknown project: $PROJECT"; exit 1 ;;
 esac
 
