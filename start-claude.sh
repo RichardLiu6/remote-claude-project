@@ -18,6 +18,11 @@ start_web_terminal() {
     (cd "$WEB_TERMINAL_DIR" && nohup node server.js </dev/null >/dev/null 2>&1 &) </dev/null >/dev/null 2>&1
     echo "Web terminal started on port $WEB_TERMINAL_PORT"
   fi
+  # 防止系统睡眠（有 session 时保持唤醒，caffeinate 跟随 node 进程）
+  if ! pgrep -f 'caffeinate.*-s' &>/dev/null; then
+    caffeinate -s -w $(lsof -ti :$WEB_TERMINAL_PORT | head -1) &>/dev/null &
+    disown
+  fi
 }
 
 # 按需关闭 Web Terminal（无 CC session 时）
