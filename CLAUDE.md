@@ -31,7 +31,7 @@ No build step. No tests. No bundler.
 
 - **node-pty uses absolute tmux path** `/opt/homebrew/bin/tmux` (node-pty doesn't inherit shell PATH)
 - **Port 8022** (avoids conflict with dev servers on 3000)
-- **Mobile input**: xterm `disableStdin: true` on mobile; uses bottom input bar with three-layer event handling (keydown → beforeinput → input) for IME + Android keyCode 229 compatibility
+- **Mobile input**: xterm `disableStdin: true` on mobile; transparent overlay textarea on terminal area (tap → keyboard opens, type → WS send). Floating quick-bar (Tab/^C/Done etc.) positioned above keyboard via visualViewport API. Three-layer event handling (keydown → beforeinput → input) for IME + Android keyCode 229 compatibility
 - **On-demand lifecycle**: `~/start-claude.sh` starts/stops the web terminal server alongside tmux sessions
 - **tmux `window-size smallest`**: dots appear if multiple clients with different sizes connect to the same session — use one device per session
 

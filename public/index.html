@@ -98,31 +98,47 @@
       -webkit-overflow-scrolling: touch;
     }
 
-    /* Mobile input bar — stays above virtual keyboard via env() */
-    #input-bar {
+    /* Hidden textarea for mobile keyboard capture.
+       Positioned off-screen so it never overlays xterm canvas
+       (overlay causes iOS compositing to break CJK/emoji rendering). */
+    #overlay-input {
+      position: fixed;
+      bottom: 0;
+      left: -9999px;
+      width: 1px;
+      height: 1px;
+      opacity: 0.01; /* Not 0 — iOS needs non-zero opacity to trigger keyboard */
+      border: none;
+      outline: none;
+      resize: none;
+      font-size: 16px; /* Prevent iOS auto-zoom */
+      padding: 0;
+      margin: 0;
+      -webkit-appearance: none;
+      display: none; /* Shown only on mobile after connect */
+    }
+
+    /* Floating quick-bar (above keyboard on mobile) */
+    #quick-bar {
       display: none;
-      flex-shrink: 0;
-      background: #16213e;
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      background: rgba(22, 33, 62, 0.92);
       border-top: 1px solid #233a6a;
       padding: 6px 10px;
-      /* Safe area for devices with home indicator */
       padding-bottom: calc(6px + env(safe-area-inset-bottom, 0px));
-    }
-
-    /* Quick action buttons row */
-    #quick-buttons {
-      display: flex;
       gap: 6px;
-      margin-bottom: 6px;
       overflow-x: auto;
       -webkit-overflow-scrolling: touch;
-      /* Hide scrollbar but keep scrolling */
       scrollbar-width: none;
-      padding-bottom: 1px;
+      flex-wrap: nowrap;
     }
-    #quick-buttons::-webkit-scrollbar { display: none; }
+    #quick-bar::-webkit-scrollbar { display: none; }
 
-    #quick-buttons button {
+    #quick-bar button {
       padding: 7px 13px;
       background: #1e3155;
       color: #c8d8f0;
@@ -133,64 +149,19 @@
       white-space: nowrap;
       cursor: pointer;
       flex-shrink: 0;
-      /* Enforce minimum touch target height */
       min-height: 34px;
-      /* Visually distinct from input area */
       letter-spacing: 0.01em;
     }
-    #quick-buttons button:active {
+    #quick-bar button:active {
       background: #533483;
       border-color: #6a42a0;
       color: #ffffff;
     }
-
-    /* Input row */
-    #input-row {
-      display: flex;
-      gap: 8px;
-      align-items: center;
-    }
-
-    #mobile-input {
-      flex: 1;
-      padding: 10px 12px;
-      background: #0d2040;
-      color: #e8eeff;
-      border: 1.5px solid #2d4a7a;
-      border-radius: 8px;
-      font-size: 16px;
-      font-family: Menlo, Monaco, 'Courier New', monospace;
-      outline: none;
-      -webkit-appearance: none;
-      /* Prevent zoom on focus in iOS (font-size 16px already handles this) */
-      caret-color: #7c5cbf;
-      min-height: 42px;
-    }
-    #mobile-input::placeholder {
-      color: #445577;
-      font-family: -apple-system, system-ui, sans-serif;
-      font-size: 14px;
-    }
-    #mobile-input:focus {
-      border-color: #6a42a0;
-      background: #102345;
-    }
-
-    #send-btn {
-      padding: 10px 16px;
+    #quick-bar .done-btn {
       background: #533483;
       color: #ffffff;
-      border: none;
-      border-radius: 8px;
-      font-size: 15px;
-      font-weight: 600;
-      cursor: pointer;
-      flex-shrink: 0;
-      min-height: 42px;
-      min-width: 58px;
-      letter-spacing: 0.02em;
+      border-color: #6a42a0;
     }
-    #send-btn:active { background: #6a42a0; }
 
     /* Session picker */
     #picker {
@@ -265,8 +236,7 @@
 
     /* Responsive: slightly larger text on wider phones */
     @media (min-width: 390px) {
-      #quick-buttons button { font-size: 14px; padding: 7px 15px; }
-      #send-btn { min-width: 64px; }
+      #quick-bar button { font-size: 14px; padding: 7px 15px; }
     }
   </style>
 </head>
@@ -280,22 +250,13 @@
 <div id="status" aria-live="polite" aria-atomic="true"></div>
 <div id="terminal-container">
   <div id="picker"><h2>Loading sessions...</h2></div>
+  <textarea id="overlay-input"
+    autocomplete="off" autocorrect="off" autocapitalize="off"
+    spellcheck="false" enterkeyhint="send"
+    aria-label="Terminal input"></textarea>
 </div>
-<div id="input-bar">
-  <div id="quick-buttons" role="toolbar" aria-label="Quick keys">
-    <button onclick="sendKey('\t')" aria-label="Tab key">Tab</button>
-    <button onclick="sendKey('\x1b[A')" aria-label="Arrow up">↑ Up</button>
-    <button onclick="sendKey('\x1b[B')" aria-label="Arrow down">↓ Down</button>
-    <button onclick="sendKey('\x03')" aria-label="Control C">^C</button>
-    <button onclick="sendKey('\x1a')" aria-label="Control Z">^Z</button>
-    <button onclick="sendKey('\x1b')" aria-label="Escape key">Esc</button>
-    <button onclick="sendKey('/')" aria-label="Forward slash">/</button>
-  </div>
-  <div id="input-row">
-    <input id="mobile-input" type="text" placeholder="Command..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="send">
-    <button id="send-btn" onclick="sendInput()" aria-label="Send command">Send</button>
-  </div>
-</div>
+
+<div id="quick-bar" role="toolbar" aria-label="Quick keys"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.min.js"></script>
@@ -326,8 +287,8 @@
   const statusEl = document.getElementById('status');
   const container = document.getElementById('terminal-container');
   const sessionSelect = document.getElementById('session-select');
-  const inputBar = document.getElementById('input-bar');
-  const mobileInput = document.getElementById('mobile-input');
+  const overlayInput = document.getElementById('overlay-input');
+  const quickBar = document.getElementById('quick-bar');
 
   function setStatus(text, cls) {
     statusEl.textContent = text;
@@ -381,15 +342,68 @@
   // Send raw key sequence to terminal (quick buttons)
   function sendKey(key) {
     wsSend(key);
-    if (isMobile) mobileInput.focus();
+    if (isMobile) overlayInput.focus();
   }
 
-  // Send input bar text to terminal (Send button)
-  function sendInput() {
-    const text = mobileInput.value;
-    if (text) wsSend(text + '\r');
-    mobileInput.value = '';
-    mobileInput.focus();
+  // Build quick-bar buttons (called once; buttons use touchstart to prevent blur)
+  function buildQuickBar() {
+    const keys = [
+      { label: 'Tab',  seq: '\t' },
+      { label: '↑',    seq: '\x1b[A' },
+      { label: '↓',    seq: '\x1b[B' },
+      { label: '^C',   seq: '\x03' },
+      { label: '^Z',   seq: '\x1a' },
+      { label: 'Esc',  seq: '\x1b' },
+      { label: '/',    seq: '/' },
+    ];
+    quickBar.innerHTML = '';
+    keys.forEach(k => {
+      const btn = document.createElement('button');
+      btn.textContent = k.label;
+      btn.setAttribute('aria-label', k.label);
+      // Use touchstart + preventDefault to keep overlay focused (keyboard stays open)
+      btn.addEventListener('touchstart', (e) => {
+        e.preventDefault();
+        sendKey(k.seq);
+      });
+      // Fallback for non-touch (desktop testing)
+      btn.addEventListener('click', (e) => { sendKey(k.seq); });
+      quickBar.appendChild(btn);
+    });
+    // "Done" button — blurs overlay to dismiss keyboard
+    const doneBtn = document.createElement('button');
+    doneBtn.textContent = 'Done';
+    doneBtn.className = 'done-btn';
+    doneBtn.setAttribute('aria-label', 'Dismiss keyboard');
+    doneBtn.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      overlayInput.blur();
+    });
+    doneBtn.addEventListener('click', () => { overlayInput.blur(); });
+    quickBar.appendChild(doneBtn);
+  }
+
+  // --- Viewport / keyboard adjustment ---
+  function adjustQuickBarPosition() {
+    if (!window.visualViewport) return;
+    const vvh = window.visualViewport.height;
+    const fullH = window.innerHeight;
+    const kbHeight = fullH - vvh - window.visualViewport.offsetTop;
+    if (kbHeight > 50) {
+      // Keyboard is open
+      quickBar.style.display = 'flex';
+      quickBar.style.bottom = kbHeight + 'px';
+      container.style.paddingBottom = (kbHeight + quickBar.offsetHeight) + 'px';
+      // Re-fit terminal to available space
+      if (fitAddon) fitAddon.fit();
+      if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+    } else {
+      // Keyboard is closed
+      quickBar.style.display = 'none';
+      container.style.paddingBottom = '0';
+      if (fitAddon) fitAddon.fit();
+      if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
+    }
   }
 
   // --- Reconnection logic ---
@@ -431,7 +445,6 @@
       if (term) {
         ws.send('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
       }
-      if (isMobile) mobileInput.focus();
     };
 
     ws.onmessage = (e) => {
@@ -464,10 +477,13 @@
     clearReconnect();
     currentSession = session;
 
-    // Hide picker, show topbar + terminal + input bar (mobile only)
+    // Hide picker, show topbar + terminal + overlay (mobile only)
     picker.style.display = 'none';
     topbar.style.display = 'flex';
-    if (isMobile) inputBar.style.display = 'block';
+    if (isMobile) {
+      overlayInput.style.display = 'block';
+      buildQuickBar();
+    }
     sessionSelect.value = session;
 
     // Init xterm
@@ -479,7 +495,7 @@
       convertEol: true,
       allowProposedApi: true,
       scrollback: 5000,
-      disableStdin: isMobile,  // Mobile uses input bar instead
+      disableStdin: isMobile,  // Mobile uses transparent overlay instead
     });
     fitAddon = new FitAddon.FitAddon();
     term.loadAddon(fitAddon);
@@ -500,6 +516,11 @@
       term.onData((data) => { wsSend(data); });
     }
 
+    // Mobile: tap terminal area → focus overlay → keyboard opens
+    if (isMobile) {
+      container.addEventListener('click', () => { overlayInput.focus(); });
+    }
+
     // WebSocket connection
     connectWs(session);
 
@@ -511,9 +532,17 @@
       if (fitAddon) fitAddon.fit();
       if (term) wsSend('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
     };
-    vpResizeHandler = resizeHandler;
     window.addEventListener('resize', resizeHandler);
-    window.visualViewport?.addEventListener('resize', vpResizeHandler);
+
+    // Mobile: use visualViewport to track keyboard open/close
+    if (isMobile && window.visualViewport) {
+      vpResizeHandler = () => { adjustQuickBarPosition(); };
+      window.visualViewport.addEventListener('resize', vpResizeHandler);
+      window.visualViewport.addEventListener('scroll', vpResizeHandler);
+    } else {
+      vpResizeHandler = resizeHandler;
+      window.visualViewport?.addEventListener('resize', vpResizeHandler);
+    }
   }
 
   // Internal cleanup (no UI state changes)
@@ -527,6 +556,7 @@
     }
     if (vpResizeHandler) {
       window.visualViewport?.removeEventListener('resize', vpResizeHandler);
+      window.visualViewport?.removeEventListener('scroll', vpResizeHandler);
       vpResizeHandler = null;
     }
     if (touchMoveHandler && touchMoveEl) {
@@ -535,6 +565,10 @@
       touchMoveEl = null;
     }
     fitAddon = null;
+    // Hide mobile overlay + quick-bar, reset padding
+    overlayInput.style.display = 'none';
+    quickBar.style.display = 'none';
+    container.style.paddingBottom = '0';
   }
 
   function disconnect() {
@@ -542,7 +576,6 @@
     cleanupConnection();
     currentSession = null;
     topbar.style.display = 'none';
-    inputBar.style.display = 'none';
     picker.style.display = 'flex';
     setStatus('');
     loadSessions();
@@ -550,11 +583,10 @@
 
   // --- Mobile input: IME composition + real-time character sending ---
   //
-  // Mobile keyboard challenge: Android soft keyboards often fire keydown with
-  // e.key === 'Unidentified' and e.keyCode === 229 for ALL keys (Backspace,
-  // Enter, arrows, etc.). We cannot rely on keydown alone on mobile.
+  // Uses transparent overlay textarea on top of xterm. User taps terminal →
+  // textarea focuses → keyboard opens. Characters sent immediately to WS.
   //
-  // Strategy:
+  // Three-layer event strategy (unchanged from previous input approach):
   //   1. keydown handles keys when e.key is recognized (desktop + iOS)
   //   2. beforeinput handles Backspace/Enter via inputType when keydown misses
   //   3. input handles normal character insertion (non-IME)
@@ -575,31 +607,31 @@
   // Track whether keydown already handled the event this cycle
   let keydownHandled = false;
 
-  mobileInput.addEventListener('compositionstart', () => {
+  overlayInput.addEventListener('compositionstart', () => {
     isComposing = true;
   });
 
-  mobileInput.addEventListener('compositionend', () => {
+  overlayInput.addEventListener('compositionend', () => {
     isComposing = false;
     justFinishedComposition = true;
     // Send the composed text (e.g. Chinese characters from pinyin IME)
-    const text = mobileInput.value;
+    const text = overlayInput.value;
     if (text) wsSend(text);
-    mobileInput.value = '';
+    overlayInput.value = '';
     // Suppress the trailing `input` event that some browsers fire after compositionend
     requestAnimationFrame(() => { justFinishedComposition = false; });
   });
 
   // beforeinput: catches mobile soft keyboard actions that keydown misses
   // (when e.key is 'Unidentified'). This fires BEFORE the input value changes.
-  mobileInput.addEventListener('beforeinput', (e) => {
+  overlayInput.addEventListener('beforeinput', (e) => {
     if (isComposing) return;
     if (keydownHandled) return;  // keydown already sent this action
 
     if (e.inputType === 'deleteContentBackward') {
       e.preventDefault();
       wsSend('\x7f');  // DEL
-      mobileInput.value = '';
+      overlayInput.value = '';
     } else if (e.inputType === 'deleteContentForward') {
       e.preventDefault();
       wsSend('\x1b[3~');  // Forward delete escape sequence
@@ -609,17 +641,17 @@
     }
   });
 
-  mobileInput.addEventListener('input', (e) => {
+  overlayInput.addEventListener('input', (e) => {
     if (isComposing) return;
     if (justFinishedComposition) return;
     if (keydownHandled) { keydownHandled = false; return; }
     // Non-IME input: send immediately for real-time tab completion etc.
-    const text = mobileInput.value;
+    const text = overlayInput.value;
     if (text) wsSend(text);
-    mobileInput.value = '';
+    overlayInput.value = '';
   });
 
-  mobileInput.addEventListener('keydown', (e) => {
+  overlayInput.addEventListener('keydown', (e) => {
     if (isComposing) return;
     keydownHandled = false;
 
@@ -637,7 +669,7 @@
     if (e.key === 'Backspace') {
       e.preventDefault();
       wsSend('\x7f');
-      mobileInput.value = '';
+      overlayInput.value = '';
       keydownHandled = true;
     } else if (e.key === 'Delete') {
       e.preventDefault();
