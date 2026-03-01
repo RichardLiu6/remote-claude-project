@@ -74,7 +74,7 @@ function broadcastVoice(payload) {
 }
 
 app.post('/voice-event', (req, res) => {
-  const text = (req.body.text || '').slice(0, 200).trim();
+  const text = (req.body.text || '').slice(0, 500).trim();
   if (!text) return res.status(400).json({ ok: false, error: 'empty text' });
 
   if (ttsInFlight) return res.status(429).json({ ok: false, error: 'TTS in progress' });
