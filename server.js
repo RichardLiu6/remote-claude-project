@@ -42,7 +42,8 @@ fs.readdir(audioDir, (err, files) => {
   fs.writeFileSync(silencePath, buf);
   console.log('[voice] created silence.wav for audio unlock');
 })();
-let ttsInFlight = false;
+let ttsQueue = [];
+let ttsProcessing = false;
 
 // --- REST API ---
 
@@ -73,38 +74,49 @@ function broadcastVoice(payload) {
   });
 }
 
-app.post('/voice-event', (req, res) => {
-  const text = (req.body.text || '').slice(0, 500).trim();
-  if (!text) return res.status(400).json({ ok: false, error: 'empty text' });
+function processNextTTS() {
+  if (ttsProcessing || ttsQueue.length === 0) return;
+  ttsProcessing = true;
 
-  if (ttsInFlight) return res.status(429).json({ ok: false, error: 'TTS in progress' });
-  ttsInFlight = true;
-
+  const { text } = ttsQueue.shift();
   const filename = `voice-${Date.now()}-${crypto.randomBytes(4).toString('hex')}.mp3`;
   const outputPath = path.join(audioDir, filename);
 
-  console.log(`[voice] generating TTS: "${text.slice(0, 40)}..."`);
+  console.log(`[voice] generating TTS: "${text.slice(0, 40)}..." (queue: ${ttsQueue.length})`);
 
   execFile('/opt/homebrew/bin/python3.13',
     ['-m', 'edge_tts', '--text', text, '--voice', 'zh-CN-XiaoxiaoNeural', '--write-media', outputPath],
     { timeout: 15000 },
     (err) => {
-      ttsInFlight = false;
+      ttsProcessing = false;
       if (err) {
         console.error('[voice] edge-tts error:', err.message);
         fs.unlink(outputPath, () => {});
-        return;
+      } else {
+        const audioUrl = `/audio/${filename}`;
+        lastVoiceEvent = { text, url: audioUrl, timestamp: Date.now() };
+        console.log(`[voice] broadcast: ${audioUrl}`);
+        broadcastVoice({ url: audioUrl, text });
+        setTimeout(() => fs.unlink(outputPath, () => {}), 5 * 60 * 1000);
       }
-      const audioUrl = `/audio/${filename}`;
-      lastVoiceEvent = { text, url: audioUrl, timestamp: Date.now() };
-      console.log(`[voice] broadcast: ${audioUrl}`);
-      broadcastVoice({ url: audioUrl, text });
-      // Auto-cleanup after 5 minutes
-      setTimeout(() => fs.unlink(outputPath, () => {}), 5 * 60 * 1000);
+      processNextTTS();
     }
   );
+}
 
-  res.json({ ok: true, status: 'generating' });
+app.post('/voice-event', (req, res) => {
+  const text = (req.body.text || '').slice(0, 500).trim();
+  if (!text) return res.status(400).json({ ok: false, error: 'empty text' });
+
+  if (ttsQueue.length >= 3) {
+    return res.status(429).json({ ok: false, error: 'queue full (3 max)' });
+  }
+
+  ttsQueue.push({ text });
+  const position = ttsQueue.length;
+  processNextTTS();
+
+  res.json({ ok: true, status: ttsProcessing && position > 1 ? 'queued' : 'generating', queue: position });
 });
 
 app.get('/voice-event', (req, res) => {
