@@ -5,12 +5,17 @@
 export PATH="/opt/homebrew/bin:$PATH"
 export LANG="${LANG:-en_US.UTF-8}"
 
+# Claude Code OAuth token（从本地文件读取，token 过期时只需更新此文件）
+if [ -f ~/.claude-oauth-token ]; then
+  export CLAUDE_CODE_OAUTH_TOKEN="$(cat ~/.claude-oauth-token)"
+fi
+
 PROJECT="${1:-default}"
 SKIP_MODE="${2:-normal}"
 
 # 按需加载 SSH key（跟随 server 生命周期，锁屏不影响）
 if ! ssh-add -l &>/dev/null; then
-  echo "SSH key not loaded, adding..."
+  echo "SSH key not loaded, adding..." >&2
   ssh-add ~/.ssh/id_ed25519 2>/dev/null || true
 fi
 
