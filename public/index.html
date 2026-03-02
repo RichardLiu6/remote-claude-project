@@ -560,12 +560,22 @@
     speakerBtn.setAttribute('aria-label', 'Toggle voice playback');
     _speakerBtnRef = speakerBtn;
     speakerBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
-    speakerBtn.addEventListener('click', () => {
+    speakerBtn.addEventListener('click', async () => {
       voiceEnabled = !voiceEnabled;
       speakerBtn.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
       speakerBtn.style.opacity = voiceEnabled ? '1' : '0.5';
       unlockAudio();
       if (!voiceEnabled) { voicePlayer.pause(); }
+      // Sync per-session voice flag to server
+      if (currentSession) {
+        try {
+          await fetch('/api/voice-toggle', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ session: currentSession, enabled: voiceEnabled })
+          });
+        } catch {}
+      }
     });
     quickBar.appendChild(speakerBtn);
   }
@@ -645,6 +655,17 @@
       if (term) {
         ws.send('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
       }
+      // Sync voice status from server for this session
+      fetch('/api/voice-status?session=' + encodeURIComponent(session))
+        .then(r => r.json())
+        .then(data => {
+          voiceEnabled = data.enabled;
+          if (_speakerBtnRef) {
+            _speakerBtnRef.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
+            _speakerBtnRef.style.opacity = voiceEnabled ? '1' : '0.5';
+          }
+        })
+        .catch(() => {});
     };
 
     ws.onmessage = (e) => {
