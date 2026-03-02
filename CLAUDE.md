@@ -12,7 +12,9 @@ Web-based terminal for remotely controlling Claude Code sessions via tmux. Desig
 Phone Browser (http://Tailscale-IP:8022)
   ├── GET /              → xterm.js frontend (session picker + terminal)
   ├── GET /api/sessions  → list tmux sessions (JSON)
-  ├── POST /voice-event  → reserved for voice push (C1 Hook)
+  ├── POST /voice-event  → Edge TTS voice push (C1 Hook)
+  ├── GET /api/voice-status?session=X  → per-session voice status
+  ├── POST /api/voice-toggle           → per-session voice on/off
   └── WS  /ws?session=X  → node-pty spawns `tmux attach -t X`
 ```
 
@@ -47,7 +49,7 @@ No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` �
 
 ## Session Startup Rule
 
-Every session in this project MUST begin by reading `remote-claude-setup-guide.md` to understand the current state of the remote workflow, and update it when changes are made to architecture, scripts, or design decisions.
+Every session in this project MUST begin by reading `docs/remote-claude-setup-guide.md` to understand the current state of the remote workflow, and update it when changes are made to architecture, scripts, or design decisions.
 
 ## Gotchas
 

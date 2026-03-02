@@ -414,10 +414,11 @@ CC 输出（末尾自带 [voice: 改好了，测试全过]）
 | `UserPromptSubmit` | 每次用户输入前 | 注入 `[voice:]` 摘要指令 | 什么都不做 |
 | `Stop` | CC 完成回复时 | 提取标记 → 推送 TTS | 只发 ntfy 文字通知 |
 
-**开关机制：** flag 文件 `~/.claude/voice-mode`
-- 开启：`touch ~/.claude/voice-mode`（iOS 快捷指令可远程 SSH 执行）
-- 关闭：`rm ~/.claude/voice-mode`
-- mid-session 随时切换
+**开关机制：** per-session flag 文件 `~/.claude/voice-mode-{tmux_session_name}`
+- 开启：`touch ~/.claude/voice-mode-richard-1218`（仅该 session 开启语音）
+- 关闭：`rm ~/.claude/voice-mode-richard-1218`
+- mid-session 随时切换，不影响其他并行 session
+- Web 终端 speaker 按钮自动调用 `/api/voice-toggle` 创建/删除对应 flag 文件
 
 **特点：**
 - CC 自己生成摘要，零额外 LLM 调用（干掉了 Haiku 摘要层）
@@ -509,13 +510,20 @@ CC 输出（末尾自带 [voice: 改好了，测试全过]）
 
 语音功能通过 CC Hook 动态注入，**不写入 CLAUDE.md**，确保非语音场景零污染。
 
-**flag 文件**：`~/.claude/voice-mode`
+**Per-session flag 文件**：`~/.claude/voice-mode-{tmux_session_name}`
+
+每个 tmux session 独立控制语音开关。Hook 通过 `tmux display-message -p '#S'` 获取当前 session 名称（已验证在 hook 子进程中可用），构造对应 flag 路径。
 
 ```
-开启：touch ~/.claude/voice-mode
-关闭：rm ~/.claude/voice-mode
-查询：[ -f ~/.claude/voice-mode ] && echo "ON" || echo "OFF"
+开启：touch ~/.claude/voice-mode-richard-1218    # 仅 richard-1218 session
+关闭：rm ~/.claude/voice-mode-richard-1218
+查询：[ -f ~/.claude/voice-mode-richard-1218 ] && echo "ON" || echo "OFF"
 ```
+
+**为什么用 tmux session name 而非 CC session_id：**
+- CC hook stdin 提供的 `session_id` 是 UUID，手机端不知道
+- tmux session name 两端都知道：手机端通过 WS `?session=X` 连接时传入，hook 端通过 `tmux display-message` 获取
+- 无需映射表，天然对齐
 
 **Hook 配置**（添加到项目或用户级 settings.json）：
 
@@ -550,79 +558,71 @@ CC 输出（末尾自带 [voice: 改好了，测试全过]）
 
 ```bash
 #!/bin/bash
-# 语音模式关闭时什么都不做
-[ ! -f ~/.claude/voice-mode ] && exit 0
+# Per-session 语音 flag 检查
+TMUX_SESSION=$(tmux display-message -p '#S' 2>/dev/null)
+if [ -n "$TMUX_SESSION" ]; then
+  VOICE_FLAG="$HOME/.claude/voice-mode-${TMUX_SESSION}"
+else
+  VOICE_FLAG="$HOME/.claude/voice-mode"  # fallback
+fi
 
-# 语音模式开启：注入 additionalContext，让 CC 生成播报摘要
-cat <<'HOOK_JSON'
+[ ! -f "$VOICE_FLAG" ] && exit 0
+
+cat <<'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "UserPromptSubmit",
-    "additionalContext": "语音模式已开启。请在回复末尾附加一行：[voice: 20字以内口语化中文摘要]，用于语音播报。"
+    "additionalContext": "语音模式已开启。请在回复末尾附加 [voice: 语音内容]..."
   }
 }
-HOOK_JSON
+EOF
 ```
 
 **voice-push.sh**（Stop — 提取并推送）：
 
 ```bash
 #!/bin/bash
-# 语音模式关闭时只发文字通知
-input=$(cat)
-msg=$(echo "$input" | jq -r '.last_assistant_message // ""')
-
-if [ ! -f ~/.claude/voice-mode ]; then
-  # 非语音模式：仅 ntfy 文字通知
-  [ -n "$msg" ] && curl -s -d "${msg:0:100}" ntfy.sh/your-topic &
-  exit 0
+# Per-session 语音 flag 检查（与 voice-inject.sh 相同逻辑）
+TMUX_SESSION=$(tmux display-message -p '#S' 2>/dev/null)
+if [ -n "$TMUX_SESSION" ]; then
+  VOICE_FLAG="$HOME/.claude/voice-mode-${TMUX_SESSION}"
+else
+  VOICE_FLAG="$HOME/.claude/voice-mode"
 fi
 
-# 语音模式：提取 [voice:] 标记
-voice_text=$(echo "$msg" | grep -oP '\[voice:\s*\K[^\]]+')
+[ ! -f "$VOICE_FLAG" ] && exit 0
 
-# 没有标记时的 fallback
-if [ -z "$voice_text" ]; then
-  [ ${#msg} -le 50 ] && voice_text="$msg" || voice_text="${msg:0:50}"
-fi
+# 读取 stdin JSON，用 python3 提取 last_assistant_message
+INPUT=$(cat)
+MSG=$(python3 -c "
+import sys, json
+data = json.loads(sys.argv[1])
+print(data.get('last_assistant_message', ''))
+" "$INPUT" 2>/dev/null)
 
-# 推送到 Web 终端（浏览器 Web Speech API 播放）
-curl -s -X POST http://localhost:8022/voice-event \
+[ -z "$MSG" ] && exit 0
+
+# 提取 [voice:] 标记，fallback 取前50字
+VOICE_TEXT=$(echo "$MSG" | grep -o '\[voice:[[:space:]]*[^]]*\]' | tail -1 | sed 's/\[voice:[[:space:]]*//' | sed 's/\]$//')
+[ -z "$VOICE_TEXT" ] && VOICE_TEXT=$(echo "$MSG" | head -c 50)
+VOICE_TEXT=$(echo "$VOICE_TEXT" | head -c 500)
+
+# POST 到 Web 终端 → Edge TTS → WS 广播 → 手机播放
+curl -s -X POST "http://localhost:8022/voice-event" \
   -H "Content-Type: application/json" \
-  -d "$(jq -n --arg t "$voice_text" '{text: $t}')" &
-
-# 同时 ntfy 文字通知
-curl -s -d "$voice_text" ntfy.sh/your-topic &
-
-exit 0
+  -d "$(printf '{"text":"%s"}' "$(echo "$VOICE_TEXT" | sed 's/"/\\"/g' | tr -d '\n')")" \
+  > /dev/null 2>&1 &
 ```
 
-**iOS 快捷指令集成**：
+**语音开关方式**：
 
-在「启动 Claude」快捷指令中扩展模式选项：
+1. **Web 终端 speaker 按钮**（推荐）：点击 🔊/🔇 按钮，自动调用 `/api/voice-toggle` 创建/删除对应 session 的 flag 文件
+2. **SSH 命令行**：`touch ~/.claude/voice-mode-{session_name}` / `rm ~/.claude/voice-mode-{session_name}`
+3. **API 直接调用**：`curl -X POST localhost:8022/api/voice-toggle -H 'Content-Type: application/json' -d '{"session":"richard-1218","enabled":true}'`
 
-```
-List [normal, skip, voice, voice-skip]
-    → Choose from List → 存为「模式」
-
-如果「模式」包含 voice：
-    SSH: touch ~/.claude/voice-mode
-
-启动 CC...
-
-如果「模式」包含 skip：
-    SSH: ~/start-claude.sh 项目名 skip
-否则：
-    SSH: ~/start-claude.sh 项目名 normal
-```
-
-也可以做一个独立的「切换语音」快捷指令：
-
-```
-SSH: [ -f ~/.claude/voice-mode ] && rm ~/.claude/voice-mode || touch ~/.claude/voice-mode
-SSH: [ -f ~/.claude/voice-mode ] && echo "语音已开启" || echo "语音已关闭"
-    → Show Result
-```
+**Server API**：
+- `GET /api/voice-status?session=X` — 查询语音状态
+- `POST /api/voice-toggle` — body: `{ "session": "X", "enabled": true/false }` — 切换语音
 
 ---
 
