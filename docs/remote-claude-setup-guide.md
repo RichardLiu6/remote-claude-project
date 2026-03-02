@@ -394,15 +394,15 @@ xterm.js 在 iOS 上的重复输入 bug 是因为文字通过 IME（输入法）
 
 ```
 语音模式开启时：
-  UserPromptSubmit Hook → 检测 voice-mode 标志
-    → 注入 additionalContext："回复末尾附加 [voice: 20字口语摘要]"
+  UserPromptSubmit Hook → 检测 voice-mode-{session} 标志
+    → 注入 additionalContext："回复末尾附加 <!-- voice: {} --> HTML 注释"
 
 你说话 → Soniox STT（实时转写）→ 文字
   → node-pty.write() 注入终端 → CC 当成普通打字处理
 
-CC 输出（末尾自带 [voice: 改好了，测试全过]）
+CC 输出（末尾自带 <!-- voice: {"text":"改好了，测试全过"} -->）
   → Stop Hook 触发 → stdin.last_assistant_message
-  → 提取 [voice:] 标记 → 推送到手机端 Web Speech API / TTS
+  → regex 找 <!-- voice: --> → json.loads 解析 → strip markdown → 推送 TTS
 ```
 
 **核心设计 — Hook 驱动，可开关：**
@@ -411,8 +411,8 @@ CC 输出（末尾自带 [voice: 改好了，测试全过]）
 
 | Hook | 触发时机 | 语音模式 ON | 语音模式 OFF |
 |------|---------|-----------|------------|
-| `UserPromptSubmit` | 每次用户输入前 | 注入 `[voice:]` 摘要指令 | 什么都不做 |
-| `Stop` | CC 完成回复时 | 提取标记 → 推送 TTS | 只发 ntfy 文字通知 |
+| `UserPromptSubmit` | 每次用户输入前 | 注入 `<!-- voice: {} -->` 格式指令 | 什么都不做 |
+| `Stop` | CC 完成回复时 | 提取 HTML 注释 → json.loads → strip markdown → TTS | 只发 ntfy 文字通知 |
 
 **开关机制：** per-session flag 文件 `~/.claude/voice-mode-{tmux_session_name}`
 - 开启：`touch ~/.claude/voice-mode-richard-1218`（仅该 session 开启语音）
@@ -431,7 +431,7 @@ CC 输出（末尾自带 [voice: 改好了，测试全过]）
 | 组件 | 技术 | 作用 |
 |------|------|------|
 | STT | Soniox Web SDK | 实时语音转文字，中英混合 |
-| 摘要 | CC 自身（Hook 注入指令） | 回复末尾自带 `[voice:]` 标记，零额外 LLM |
+| 摘要 | CC 自身（Hook 注入指令） | 回复末尾自带 `<!-- voice: {} -->` HTML 注释，零额外 LLM |
 | TTS | Web Speech API（浏览器端，免费）/ Kokoro（本地） | 手机端播报 |
 | VAD | Silero VAD / Soniox 内置 | 判断你说完了没 |
 | 语音开关 | UserPromptSubmit + Stop Hook | 动态注入/提取语音摘要 |
@@ -568,11 +568,12 @@ fi
 
 [ ! -f "$VOICE_FLAG" ] && exit 0
 
+# 注入 HTML 注释格式指令：<!-- voice: {"text":"摘要"} -->
 cat <<'EOF'
 {
   "hookSpecificOutput": {
     "hookEventName": "UserPromptSubmit",
-    "additionalContext": "语音模式已开启。请在回复末尾附加 [voice: 语音内容]..."
+    "additionalContext": "语音模式已开启。请在回复末尾附加 HTML 注释：<!-- voice: {\"text\":\"语音内容\"} -->..."
   }
 }
 EOF
@@ -582,7 +583,7 @@ EOF
 
 ```bash
 #!/bin/bash
-# Per-session 语音 flag 检查（与 voice-inject.sh 相同逻辑）
+# Per-session 语音 flag 检查
 TMUX_SESSION=$(tmux display-message -p '#S' 2>/dev/null)
 if [ -n "$TMUX_SESSION" ]; then
   VOICE_FLAG="$HOME/.claude/voice-mode-${TMUX_SESSION}"
@@ -592,26 +593,44 @@ fi
 
 [ ! -f "$VOICE_FLAG" ] && exit 0
 
-# 读取 stdin JSON，用 python3 提取 last_assistant_message
 INPUT=$(cat)
-MSG=$(python3 -c "
-import sys, json
-data = json.loads(sys.argv[1])
-print(data.get('last_assistant_message', ''))
-" "$INPUT" 2>/dev/null)
 
-[ -z "$MSG" ] && exit 0
+# 单个 python3 调用完成全部处理：
+# 1. 解析 hook stdin JSON（stdin 管道，无 ARG_MAX 限制）
+# 2. regex 找 <!-- voice: {...} -->（HTML 注释不会与 markdown 冲突）
+# 3. json.loads 解析内容（结构化，支持扩展字段）
+# 4. strip markdown 格式（去 **、`、# 等再送 TTS）
+# 5. json.dumps 输出安全 JSON（处理引号、换行、unicode）
+# 兼容旧 [voice:] 格式作为 fallback
+PAYLOAD=$(echo "$INPUT" | python3 -c "
+import sys, json, re
+data = json.loads(sys.stdin.read())
+msg = data.get('last_assistant_message', '')
+if not msg: sys.exit(1)
 
-# 提取 [voice:] 标记，fallback 取前50字
-VOICE_TEXT=$(echo "$MSG" | grep -o '\[voice:[[:space:]]*[^]]*\]' | tail -1 | sed 's/\[voice:[[:space:]]*//' | sed 's/\]$//')
-[ -z "$VOICE_TEXT" ] && VOICE_TEXT=$(echo "$MSG" | head -c 50)
-VOICE_TEXT=$(echo "$VOICE_TEXT" | head -c 500)
+# 优先匹配 HTML 注释格式
+match = re.search(r'<!--\s*voice:\s*(\{.*?\})\s*-->', msg, re.DOTALL)
+if match:
+    try:
+        text = json.loads(match.group(1)).get('text', '').strip()
+    except: text = match.group(1).strip()
+else:
+    # Fallback: 旧 [voice:] 格式
+    old = re.search(r'\[voice:\s*(.*?)\]', msg, re.DOTALL)
+    text = old.group(1).strip() if old else msg[:50].strip()
 
-# POST 到 Web 终端 → Edge TTS → WS 广播 → 手机播放
+# Strip markdown
+for pat, rep in [(r'\*\*(.+?)\*\*', r'\1'), (r'\*(.+?)\*', r'\1'),
+                 (r'\x60[^\x60]+\x60', ''), (r'^\#{1,6}\s+', '')]:
+    text = re.sub(pat, rep, text, flags=re.MULTILINE)
+text = text.strip()[:500]
+if not text: sys.exit(1)
+print(json.dumps({'text': text}))
+" 2>/dev/null)
+
+[ -z "$PAYLOAD" ] && exit 0
 curl -s -X POST "http://localhost:8022/voice-event" \
-  -H "Content-Type: application/json" \
-  -d "$(printf '{"text":"%s"}' "$(echo "$VOICE_TEXT" | sed 's/"/\\"/g' | tr -d '\n')")" \
-  > /dev/null 2>&1 &
+  -H "Content-Type: application/json" -d "$PAYLOAD" > /dev/null 2>&1 &
 ```
 
 **语音开关方式**：

@@ -14,23 +14,24 @@
     ▼
 ┌────────────────────────────┐
 │  UserPromptSubmit Hook     │  voice-inject.sh（同步）
-│  检查 ~/.claude/voice-mode │
-│  存在 → 注入 [voice:] 指令  │  ~200-300 input tokens/次
+│  检查 voice-mode-{session}  │
+│  存在 → 注入语音指令         │  ~200-300 input tokens/次
 └────────────┬───────────────┘
              ▼
-      CC 生成回复（末尾含 [voice: 中文摘要]）
+      CC 生成回复（末尾含 <!-- voice: {"text":"中文摘要"} -->）
              │
              ▼
 ┌────────────────────────────┐
 │  Stop Hook                 │  voice-push.sh（async, 15s）
 │  python3 提取 message      │
-│  grep 提取 [voice:] 文本   │  ← 脆弱环节
-│  curl POST /voice-event &  │  ← fire-and-forget
+│  regex 找 <!-- voice: -->  │
+│  json.loads 解析内容        │  ← 结构化解析，零歧义
+│  strip markdown → curl &   │
 └────────────┬───────────────┘
              ▼
 ┌────────────────────────────┐
 │  server.js /voice-event    │
-│  ttsInFlight 互斥锁        │  ← 静默丢弃
+│  3 项 TTS 队列              │  ← 排队不丢弃
 │  edge-tts → MP3            │  zh-CN-XiaoxiaoNeural
 │  WS 广播 \x01voice:        │
 │  5min 后自动清理 MP3        │
@@ -55,17 +56,17 @@
 
 | # | 缺陷 | 详情 | 影响 |
 |---|------|------|------|
-| 1 | **Regex 提取脆弱** | `grep -o '\[voice:[[:space:]]*[^]]*\]'` 无法匹配换行、嵌套 `]`、UTF-8 截断 | 语音内容被截断或完全提取失败 |
-| 2 | **TTS 互斥锁丢语音** | `ttsInFlight` 返回 429，但 hook 的 `curl &` 不检查返回码 | 快速连续回复时语音静默消失 |
+| 1 | ~~**Regex 提取脆弱**~~ ✅ 已修 | ~~`grep -o` 无法匹配换行、嵌套 `]`~~ → 改用 `<!-- voice: {} -->` HTML 注释 + `json.loads` 结构化解析 | 已消除 |
+| 2 | ~~**TTS 互斥锁丢语音**~~ ✅ 已修 | ~~`ttsInFlight` 返回 429~~ → 改用 3 项队列，排队处理不丢弃 | 已消除 |
 
 ### 中危
 
 | # | 缺陷 | 详情 | 影响 |
 |---|------|------|------|
 | 3 | **"零成本"被低估** | 每轮注入 ~200-300 input tokens + ~100-150 output tokens | 50 轮交互额外消耗 15-20K tokens |
-| 4 | **JSON 手工拼接** | `sed 's/"/\\"/g'` 未处理 `\`、`\n`、`\r` 等字符 | 含反斜杠的路径/代码导致 JSON 解析失败 |
-| 5 | **多 session 不隔离** | `~/.claude/voice-mode` 全局单文件 | 一个 session 开语音 → 所有 session 都开 |
-| 6 | **CLAUDE_VOICE_MODE 从未实现** | CLAUDE.md 记载环境变量方案但代码中未使用 | 文档与实现不一致 |
+| 4 | ~~**JSON 手工拼接**~~ ✅ 已修 | ~~`sed` 拼接~~ → `json.dumps()` 安全编码 | 已消除 |
+| 5 | ~~**多 session 不隔离**~~ ✅ 已修 | ~~全局 `voice-mode`~~ → per-session `voice-mode-{tmux_session_name}` | 已消除 |
+| 6 | ~~**CLAUDE_VOICE_MODE 从未实现**~~ ✅ 已修 | 文档已更新，移除环境变量引用，改用 tmux session name | 已消除 |
 
 ### 低危
 
@@ -73,21 +74,22 @@
 |---|------|------|
 | 7 | edge-tts 网络依赖 | 无离线 fallback（macOS `say` 可用但未接入） |
 | 8 | 时序问题 | CC 被中断时 Stop hook 可能提取半截话 |
-| 9 | TTS 文本未清理 | Markdown 格式符号（`**`、`#`、反引号）会被朗读 |
+| 9 | ~~TTS 文本未清理~~ ✅ 已修 | ~~Markdown 被朗读~~ → python3 strip markdown 再送 TTS |
 
 ---
 
 ## 三、Flag 系统分析
 
-### 当前方案：全局文件检测
+### 当前方案：Per-session flag 文件 ✅ 已实现
 
 ```
-~/.claude/voice-mode  →  存在=开  不存在=关
+~/.claude/voice-mode-{tmux_session_name}  →  存在=开  不存在=关
 ```
 
-- 作用域：用户级，影响所有 CC session
+- 作用域：单个 tmux session，不影响其他并行 session
 - 持久性：跨 session 持久，不自动清理
-- 切换方式：`POST /api/voice-toggle` 或手动 `touch/rm`
+- 切换方式：Web 终端 speaker 按钮（调用 `POST /api/voice-toggle`）或手动 `touch/rm`
+- Session 名获取：hook 通过 `tmux display-message -p '#S'`，前端通过 WS 连接参数
 
 ### 可选方案对比
 
@@ -112,12 +114,13 @@
 - 优点：消除 token 消耗、消除 regex 脆弱性、消除 429 丢失
 - 代价：摘要质量不如 CC 生成的精准
 
-### 方案 B：CLAUDE.md 静态指令 + 结构化输出
+### 方案 B：CLAUDE.md 静态指令 + 结构化输出 → **已采纳格式部分**
 
-把语音指令写入 CLAUDE.md（一次性加载），CC 输出 `<!-- voice: {} -->` HTML 注释，用 python3 `json.loads` 解析。
+~~把语音指令写入 CLAUDE.md~~ → 仍用 Hook 注入（保留 per-session 可开关），但 CC 输出格式改为 `<!-- voice: {"text":"..."} -->` HTML 注释，用 python3 `json.loads` 解析。
 
-- 优点：指令只加载一次不重复注入、JSON 解析可靠
-- 代价：CLAUDE.md 规则对所有 session 生效
+- ✅ 已采纳：结构化 HTML 注释格式（json.loads 解析可靠，支持扩展字段）
+- ❌ 未采纳：写入 CLAUDE.md（不可开关、全局生效）
+- 结论：**Hook 注入 + HTML 注释格式 = 两者优点的组合**
 
 ### 方案 C：浏览器端 Web Speech API
 
@@ -134,10 +137,10 @@
 
 | 项目 | 改动 | 工作量 |
 |------|------|--------|
-| 修 JSON 拼接 | voice-push.sh 改用 `python3 -c "json.dumps()"` | 15 min |
-| 修 regex 提取 | 改用 python3 正则（支持换行、嵌套） | 30 min |
-| TTS 队列替代锁 | server.js `ttsInFlight` → 请求队列 | 45 min |
-| TTS 文本清理 | 去除 Markdown 格式再送 edge-tts | 15 min |
+| ~~修 JSON 拼接~~ ✅ | `json.dumps()` 替代 `printf+sed` | done |
+| ~~修 regex 提取~~ ✅ | `<!-- voice: {} -->` HTML 注释 + `json.loads`（兼容旧 `[voice:]` fallback） | done |
+| ~~TTS 队列替代锁~~ ✅ | `ttsInFlight` boolean → 3 项队列 + `processNextTTS()` | done |
+| ~~TTS 文本清理~~ ✅ | python3 strip `**`/`` ` ``/`#`/`[link]()` 再送 TTS | done |
 
 ### 第二阶段：核心体验提升（~3.5h）
 
@@ -205,8 +208,8 @@ Persona 示例：
 | 定位 | 多平台 AI 助手（桌面端+全功能对话） | 手机远程控制 CC（异步播报） |
 | TTS 提供商 | ElevenLabs/OpenAI/Edge TTS（三选一） | Edge TTS only（免费） |
 | 触发方式 | auto 模式（off/always/inbound/tagged） | Hook 注入 + flag 文件 |
-| 指令格式 | `[[tts:provider=x voice=y]]` | `[voice: 摘要文本]` |
-| 文本清理 | `stripMarkdown()` 去格式 | 无（直接送 TTS） |
+| 指令格式 | `[[tts:provider=x voice=y]]` | `<!-- voice: {"text":"摘要"} -->` HTML 注释 |
+| 文本清理 | `stripMarkdown()` 去格式 | python3 regex strip markdown |
 | 流式 | 句子级分段播放 | 整段生成完才播放 |
 
 **结论**：OpenClaw 验证了 Edge TTS 免费方案的可行性。最值得借鉴的是分句流式 TTS 和文本清理。STT/唤醒词/WebRTC 对我们场景 ROI 太低。

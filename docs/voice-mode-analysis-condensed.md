@@ -4,6 +4,7 @@
 > 审查日期：2026-03-01
 > 审查方法：准确性验证（对照代码）、结构冗余检查、实用性评估
 > 用户痛点确认：Regex 偶发提取失败、多 session 并行时语音全局开关冲突
+> 最终状态：P0 全部修复（含格式升级 `[voice:]` → `<!-- voice: {} -->` HTML 注释），P1 已实现
 
 ---
 
@@ -25,41 +26,29 @@
 
 | # | 缺陷 | 位置 | 修复方案 | 工时 |
 |---|------|------|---------|------|
-| 1 | **JSON 手工拼接** | voice-push.sh:41 | `sed` → `python3 json.dumps()` | 5 min |
-| 2 | **Markdown 被朗读** | 管线无清理步骤 | 加 strip 逻辑（去 `**`/`#`/反引号） | 15 min |
-| 3 | **TTS 互斥锁丢语音** | server.js:80 返回 429，curl 丢弃 | boolean → 简单队列 | 30-45 min |
-| 4 | **Regex 提取脆弱** | voice-push.sh:26 `grep -o` | 改 python3 正则（支持换行、嵌套 `]`） | 30 min |
+| 1 | ~~**JSON 手工拼接**~~ | voice-push.sh | ✅ `json.dumps()` 替代 `printf+sed` | done |
+| 2 | ~~**Markdown 被朗读**~~ | voice-push.sh | ✅ python3 strip `**`/`#`/反引号再送 TTS | done |
+| 3 | ~~**TTS 互斥锁丢语音**~~ | server.js | ✅ boolean → 3 项队列 `processNextTTS()` | done |
+| 4 | ~~**Regex 提取脆弱**~~ | voice-push.sh | ✅ `[voice:]` → `<!-- voice: {} -->` HTML 注释 + `json.loads`（保留旧格式 fallback） | done |
 
-> 用户反馈：Regex 偶尔导致语音截断或无声音。不是每次但真实存在。
+> 全部已修复。格式升级为 HTML 注释 + JSON 结构化解析，彻底消除 regex 歧义。
 
 ### P1：多 Session 隔离（~30-45 min）
 
-**用户痛点**：经常 2-3 个 CC session 并行，只想给其中一个开语音，但 `~/.claude/voice-mode` 全局 flag 导致所有 session 都被注入 `[voice:]` 指令。
+✅ **已实现**。per-session flag 文件 `~/.claude/voice-mode-{tmux_session_name}`。
 
-**推荐方案**：Session 级 flag 文件
-
-```
-~/.claude/voice-mode-{session_id}   # 存在=该 session 开启语音
-```
-
-改动点：
-- voice-inject.sh：检查 `voice-mode-{session}` 而非 `voice-mode`（session_id 从 hook stdin JSON 的 `session_id` 字段获取）
-- voice-push.sh：同上
-- server.js toggle API：接受 session 参数，创建/删除对应 flag 文件
-- 前端 toggle 按钮：传当前 session name
-
-> 注意：需要验证 `UserPromptSubmit` hook stdin 是否包含 `session_id` 字段。如果不包含，fallback 方案是用 `tmux display-message -p '#S'` 获取当前 session 名。
+Hook 通过 `tmux display-message -p '#S'` 获取 session 名（已验证可用），前端 speaker 按钮调用 `/api/voice-toggle` 管理 flag 文件。
 
 ### P2：审查新发现的缺陷（低优先级）
 
 | # | 缺陷 | 严重度 | 说明 |
 |---|------|--------|------|
-| 5 | `except: pass` 吞错误 | 低 | python3 提取脚本静默忽略所有异常，调试困难 |
-| 6 | `sys.argv` 传大 JSON | 低 | 超长回复时命令行参数可能超限（ARG_MAX） |
+| 5 | ~~`except: pass` 吞错误~~ | 低 | ✅ 已修：改为 `except Exception`，错误输出到 stderr |
+| 6 | ~~`sys.argv` 传大 JSON~~ | 低 | ✅ 已修：改用 stdin 管道传入，无 ARG_MAX 限制 |
 
 > 以下问题经用户确认为**不需要修**：
-> - `head -c 500` UTF-8 截断：prompt 注入生成的 `[voice:]` 内容通常远小于 500 字节，实际不会触发
-> - Fallback 垃圾语音：同理，prompt 注入下 `[voice:]` 标签几乎总是存在，fallback 路径极少触发
+> - `head -c 500` UTF-8 截断：prompt 注入生成的语音内容通常远小于 500 字节，实际不会触发
+> - Fallback 垃圾语音：HTML 注释格式更可靠，fallback 路径更少触发
 
 ### 不需要修的
 
@@ -77,8 +66,8 @@
 
 | 替代方案 | 为什么不换 |
 |---------|-----------|
-| 服务端摘要（去掉 `[voice:]`） | 摘要质量是语音核心。CC 生成的摘要比规则提取准确得多 |
-| CLAUDE.md 静态指令 | 横向替换，没有本质改进。同样有全局生效问题 |
+| 服务端摘要（去掉语音标签） | 摘要质量是语音核心。CC 生成的摘要比规则提取准确得多 |
+| CLAUDE.md 静态指令 | 不可开关、全局生效。但其 HTML 注释格式已被采纳（与 Hook 注入组合） |
 | 浏览器 Web Speech API | iOS Safari 后台不发声，与"手机在口袋里听"的核心场景矛盾 |
 
 ---
@@ -122,9 +111,11 @@
 ## 实际行动计划
 
 ```
-现在做（~2h）
-├── P0 修 4 个 bug：JSON、Markdown、TTS 队列、Regex
-└── P1 多 session 隔离：session 级 flag 文件
+✅ 已完成
+├── P0 修 4 个 bug：JSON、Markdown、TTS 队列、Regex→HTML注释
+├── P1 多 session 隔离：per-session flag 文件
+├── P2 修 2 个小问题：except:pass、sys.argv
+└── 格式升级：[voice:] → <!-- voice: {} --> HTML 注释 + json.loads
 
 以后再说
 ├── 播放状态 UI（如果绿闪不够用）
