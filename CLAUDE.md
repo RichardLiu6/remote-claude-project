@@ -51,6 +51,10 @@ No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` �
 
 Every session in this project MUST begin by reading `docs/remote-claude-setup-guide.md` to understand the current state of the remote workflow, and update it when changes are made to architecture, scripts, or design decisions.
 
+## Authentication
+
+`start-claude.sh` 从 `~/.claude-oauth-token` 读取 OAuth token 并 export 为 `CLAUDE_CODE_OAUTH_TOKEN`，供 Claude Code 无头认证。Token 过期后只需更新该文件内容，新 session 自动生效。
+
 ## Gotchas
 
 **node-pty spawn-helper**: The binary at `node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper` must have execute permission. If `posix_spawnp failed`:
