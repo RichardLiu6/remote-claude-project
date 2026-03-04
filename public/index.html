@@ -172,6 +172,61 @@
       border-color: #2a9d6f;
     }
 
+    /* Right-side scroll gesture zone (mobile) */
+    #scroll-zone {
+      display: none;  /* shown only on mobile after connect */
+      position: absolute;
+      top: 0;
+      right: 0;
+      width: 36px;
+      height: 100%;
+      z-index: 5;
+      touch-action: none;  /* we handle all touch events */
+    }
+    #scroll-zone .scroll-track {
+      position: absolute;
+      top: 8px;
+      bottom: 8px;
+      right: 6px;
+      width: 4px;
+      border-radius: 2px;
+      background: rgba(255,255,255,0.06);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    #scroll-zone.active .scroll-track {
+      opacity: 1;
+    }
+    #scroll-zone .scroll-thumb {
+      position: absolute;
+      right: 4px;
+      width: 8px;
+      height: 40px;
+      border-radius: 4px;
+      background: rgba(160,196,255,0.5);
+      opacity: 0;
+      transition: opacity 0.2s;
+    }
+    #scroll-zone.active .scroll-thumb {
+      opacity: 1;
+    }
+    #scroll-zone .scroll-hint {
+      position: absolute;
+      top: 50%;
+      right: 10px;
+      transform: translateY(-50%);
+      font-size: 10px;
+      color: rgba(160,196,255,0.5);
+      writing-mode: vertical-rl;
+      letter-spacing: 2px;
+      opacity: 0;
+      transition: opacity 0.3s;
+      pointer-events: none;
+    }
+    #scroll-zone.hint-visible .scroll-hint {
+      opacity: 1;
+    }
+
     /* Selectable text overlay for mobile Select mode */
     #select-overlay {
       position: absolute;
@@ -278,6 +333,11 @@
 <div id="status" aria-live="polite" aria-atomic="true"></div>
 <div id="terminal-container">
   <div id="picker"><h2>Loading sessions...</h2></div>
+  <div id="scroll-zone">
+    <div class="scroll-track"></div>
+    <div class="scroll-thumb"></div>
+    <div class="scroll-hint">SCROLL</div>
+  </div>
   <div id="select-overlay"></div>
   <textarea id="overlay-input"
     autocomplete="off" autocorrect="off" autocapitalize="off"
@@ -319,6 +379,7 @@
   const overlayInput = document.getElementById('overlay-input');
   const quickBar = document.getElementById('quick-bar');
   const selectOverlay = document.getElementById('select-overlay');
+  const scrollZone = document.getElementById('scroll-zone');
 
   function setStatus(text, cls) {
     statusEl.textContent = text;
@@ -392,6 +453,13 @@
       const sessions = await res.json();
       renderPicker(sessions);
       renderSelect(sessions);
+      // Auto-reconnect: if a session was active before refresh, reconnect to it
+      if (!currentSession) {
+        const saved = sessionStorage.getItem('currentSession');
+        if (saved && sessions.some(s => s.name === saved)) {
+          connect(saved);
+        }
+      }
     } catch (e) {
       picker.innerHTML = '<h2>Failed to load sessions</h2>';
     }
@@ -419,6 +487,8 @@
     sessionSelect.innerHTML = sessions.map(s =>
       `<option value="${s.name}">${s.name}</option>`
     ).join('');
+    // Restore selected value after rebuilding dropdown
+    if (currentSession) sessionSelect.value = currentSession;
   }
 
   // Send raw key sequence to terminal (quick buttons)
@@ -580,6 +650,118 @@
     quickBar.appendChild(speakerBtn);
   }
 
+  // --- Right-side scroll gesture → tmux copy-mode ---
+  // Intercepts touch on the right scroll zone, enters tmux copy-mode,
+  // and sends arrow keys / Page Up/Down proportional to swipe distance.
+  let _scrollInited = false;
+  let _inCopyMode = false;
+  let _copyModeTimer = null;
+  let _scrollHintShown = false;
+
+  function initScrollGesture() {
+    if (_scrollInited) return;
+    _scrollInited = true;
+
+    const thumb = scrollZone.querySelector('.scroll-thumb');
+    let startY = 0;
+    let lastY = 0;
+    let accumDelta = 0;
+    let touchStartTime = 0;
+    const STEP = 10;  // px per arrow key — that's it
+
+    // Show a brief scroll hint on first connect, then fade
+    if (!_scrollHintShown) {
+      _scrollHintShown = true;
+      scrollZone.classList.add('hint-visible');
+      setTimeout(() => scrollZone.classList.remove('hint-visible'), 3000);
+    }
+
+    function enterCopyMode() {
+      if (_inCopyMode) return;
+      wsSend('\x02[');  // Ctrl+B [
+      _inCopyMode = true;
+    }
+
+    function exitCopyMode() {
+      if (!_inCopyMode) return;
+      wsSend('q');
+      _inCopyMode = false;
+    }
+
+    function scheduleCopyModeExit() {
+      if (_copyModeTimer) clearTimeout(_copyModeTimer);
+      _copyModeTimer = setTimeout(() => {
+        exitCopyMode();
+        scrollZone.classList.remove('active');
+      }, 1500);
+    }
+
+    scrollZone.addEventListener('touchstart', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      startY = touch.clientY;
+      lastY = touch.clientY;
+      accumDelta = 0;
+      touchStartTime = Date.now();
+
+      // Cancel pending exit
+      if (_copyModeTimer) { clearTimeout(_copyModeTimer); _copyModeTimer = null; }
+
+      // Enter tmux copy mode on touch
+      enterCopyMode();
+      scrollZone.classList.add('active');
+
+      // Position thumb at touch point
+      const rect = scrollZone.getBoundingClientRect();
+      const thumbY = Math.max(8, Math.min(touch.clientY - rect.top - 20, rect.height - 48));
+      thumb.style.top = thumbY + 'px';
+    }, { passive: false });
+
+    scrollZone.addEventListener('touchmove', (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      const deltaY = touch.clientY - lastY;
+      lastY = touch.clientY;
+      accumDelta += deltaY;
+
+      // Update thumb position (cosmetic)
+      const rect = scrollZone.getBoundingClientRect();
+      const thumbY = Math.max(8, Math.min(touch.clientY - rect.top - 20, rect.height - 48));
+      thumb.style.top = thumbY + 'px';
+
+      // Simple: every 10px = one arrow key
+      while (Math.abs(accumDelta) >= STEP) {
+        const key = accumDelta < 0 ? '\x1b[A' : '\x1b[B';  // ↑ or ↓
+        wsSend(key);
+        accumDelta += accumDelta < 0 ? STEP : -STEP;
+      }
+    }, { passive: false });
+
+    scrollZone.addEventListener('touchend', (e) => {
+      e.preventDefault();
+      // Fast flick? Only send page key if swipe was quick (<300ms) AND long (>100px)
+      const elapsed = Date.now() - touchStartTime;
+      const totalDelta = lastY - startY;
+      if (elapsed < 300 && Math.abs(totalDelta) > 100) {
+        const pageKey = totalDelta < 0 ? '\x1b[5~' : '\x1b[6~';
+        wsSend(pageKey);
+      }
+      // Schedule exit from copy mode after 1.5s
+      scheduleCopyModeExit();
+    });
+
+    // Tap terminal area → immediately exit copy mode
+    container.addEventListener('click', () => {
+      if (_inCopyMode) {
+        exitCopyMode();
+        scrollZone.classList.remove('active');
+        if (_copyModeTimer) { clearTimeout(_copyModeTimer); _copyModeTimer = null; }
+      }
+    });
+  }
+
   // --- Viewport / keyboard adjustment ---
   function adjustQuickBarPosition() {
     if (!window.visualViewport) return;
@@ -715,6 +897,7 @@
     intentionalDisconnect = false;
     clearReconnect();
     currentSession = session;
+    sessionStorage.setItem('currentSession', session);
 
     // Hide picker, show topbar + terminal + overlay (mobile only)
     picker.style.display = 'none';
@@ -722,6 +905,8 @@
     if (isMobile) {
       overlayInput.style.display = 'block';
       buildQuickBar();
+      scrollZone.style.display = 'block';
+      initScrollGesture();
     }
     sessionSelect.value = session;
 
@@ -806,10 +991,12 @@
     }
     fitAddon = null;
     selectMode = false;
-    // Hide mobile overlay + quick-bar + select overlay, restore flex layout
+    // Hide mobile overlay + quick-bar + scroll zone + select overlay, restore flex layout
     hideSelectOverlay();
     overlayInput.style.display = 'none';
     quickBar.style.display = 'none';
+    scrollZone.style.display = 'none';
+    scrollZone.classList.remove('active');
     container.style.height = '';
     container.style.flex = '1';
   }
@@ -818,6 +1005,7 @@
     intentionalDisconnect = true;
     cleanupConnection();
     currentSession = null;
+    sessionStorage.removeItem('currentSession');
     topbar.style.display = 'none';
     picker.style.display = 'flex';
     setStatus('');
@@ -896,7 +1084,13 @@
   // (when e.key is 'Unidentified'). This fires BEFORE the input value changes.
   overlayInput.addEventListener('beforeinput', (e) => {
     if (isComposing) return;
-    if (keydownHandled) return;  // keydown already sent this action
+    if (keydownHandled) {
+      // keydown already sent this action — still preventDefault to stop
+      // the browser from inserting a newline into the textarea (which would
+      // desync sentBuffer and cause a duplicate \r on the next input event)
+      e.preventDefault();
+      return;
+    }
 
     if (e.inputType === 'deleteContentBackward') {
       e.preventDefault();
@@ -965,8 +1159,11 @@
       e.preventDefault();
       wsSend(KEY_MAP[e.key]);
       keydownHandled = true;
-      // Enter sends \r — reset tracking state since we're starting a new input context
-      if (e.key === 'Enter') resetSentState();
+      // Enter sends \r — defer reset so sentBuffer stays consistent during
+      // the remaining beforeinput/input events for this keypress; immediate
+      // reset can make the mobile keyboard react to the empty value and fire
+      // spurious deleteContentBackward events (deleting the last char)
+      if (e.key === 'Enter') requestAnimationFrame(() => resetSentState());
       return;
     }
 
