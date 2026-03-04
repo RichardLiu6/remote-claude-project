@@ -886,6 +886,7 @@
   let keydownHandled = false;
   // iOS Enter fix: track empty-key keydown timestamp to suppress spurious Backspace
   let _emptyKeyTs = 0;
+  let _compositionEndTs = 0;
   // Flag: insertParagraph already handled Enter, suppress trailing insertText
   let _enterParagraphHandled = false;
 
@@ -922,6 +923,7 @@
 
   overlayInput.addEventListener('compositionend', () => {
     isComposing = false;
+    _compositionEndTs = Date.now();
     justFinishedComposition = true;
     // Send the composed text (e.g. Chinese characters from pinyin IME)
     const text = overlayInput.value;
@@ -966,6 +968,12 @@
       wsSend('\x1b[3~');  // Forward delete escape sequence
       _dbg('ACTION', '<b style="color:#f00">SEND FWD-DEL</b>');
     } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      // Suppress Enter that fires right after IME composition confirmation
+      if (justFinishedComposition || Date.now() - _compositionEndTs < 300) {
+        e.preventDefault();
+        _dbg('ACTION', '<b style="color:#f80">SUPPRESSED Enter (post-IME)</b>');
+        return;
+      }
       e.preventDefault();
       wsSend('\r');
       resetSentState();
