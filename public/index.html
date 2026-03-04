@@ -884,6 +884,7 @@
 
   let previousValue = '';    // tracks what's been sent (renamed from sentBuffer)
   let _compositionEndTs = 0; // timestamp of last compositionend
+  let _inputIsComposing = false; // tracked from InputEvent.isComposing (reliable on Safari)
 
   // Timer to periodically reset value + previousValue to prevent unbounded growth
   let resetTimer = null;
@@ -972,9 +973,12 @@
     if (isComposing) return;
 
     if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
-      // Suppress Enter that fires right after IME composition confirmation
-      if (Date.now() - _compositionEndTs < 300) {
+      // Suppress Enter that fires as part of IME composition confirmation.
+      // Uses three signals: InputEvent.isComposing (reliable on Safari), compositionend
+      // timestamp (fallback), and compositionstart/end flag.
+      if (_inputIsComposing || Date.now() - _compositionEndTs < 300) {
         e.preventDefault();
+        _inputIsComposing = false; // reset after suppression
         _dbg('ACTION', '<b style="color:#f80">SUPPRESSED Enter (post-IME)</b>');
         return;
       }
@@ -1003,7 +1007,10 @@
   });
 
   overlayInput.addEventListener('input', (e) => {
-    _dbg('input', `type=${e.inputType} data="${e.data}" composing=${isComposing} val="${overlayInput.value}" prev="${previousValue}"`);
+    // Track InputEvent.isComposing — reliable on Safari even when KeyboardEvent.isComposing is wrong
+    // (WebKit Bug #165004: Safari fires compositionend BEFORE keydown, making keydown.isComposing=false)
+    if (e instanceof InputEvent) _inputIsComposing = e.isComposing;
+    _dbg('input', `type=${e.inputType} data="${e.data}" composing=${isComposing} inputIsComposing=${_inputIsComposing} val="${overlayInput.value}" prev="${previousValue}"`);
     if (isComposing) return;
 
     const current = overlayInput.value;
