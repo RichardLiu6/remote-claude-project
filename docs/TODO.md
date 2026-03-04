@@ -23,3 +23,4 @@
 | 9 | 🐛 Bug | 修复 SSH echo 污染 iOS Shortcuts session 列表 | 2026-03-02 |
 | 10 | 🐛 Bug | 页面刷新后 session 选择器重置（sessionStorage 持久化） | 2026-03-03 |
 | 11 | 🐛 Bug | 手机输入法换行删字+双行（iOS IME 发 insertParagraph 非 Enter） | 2026-03-04 |
+| 15 | 🔧 Improve | 移动端输入重构：三层事件拦截 → diff 模型（-50 行，消除 IME 时序 bug） | 2026-03-04 |

@@ -42,8 +42,12 @@ No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` �
 
 - xterm `disableStdin: true` on mobile; transparent off-screen textarea captures keyboard input
 - Floating quick-bar (Tab/^C/Esc/Select/Done) above keyboard via visualViewport API; uses `mousedown` preventDefault (not `touchstart`) to keep keyboard open without blocking horizontal scroll
-- Three-layer event handling: keydown → beforeinput → input for IME + Android keyCode 229 compatibility
-- **sentBuffer tracking**: prevents English autocomplete duplicates — tracks chars already sent, detects keyboard replacement via common-prefix diff, sends minimal backspaces before replacement text
+- **Diff-based input model** (replaced three-layer event interception):
+  - `keydown`: only handles clearly identified keys (physical keyboard Enter/arrows/Tab/Esc/Backspace)
+  - `beforeinput`: only handles soft-keyboard Enter (with post-IME 300ms suppression) + edge cases
+  - `input`: pure diff — compares `previousValue` with `textarea.value`, sends backspaces + delta
+  - `compositionend`: records timestamp only; does NOT send text (diff in `input` handles it)
+  - Eliminates IME timing bugs by observing results instead of intercepting individual events
 - **Select mode**: overlays a native-selectable `<div>` with terminal buffer text over the canvas (canvas doesn't support native text selection). Quick-bar stays visible in Select mode
 - **Dynamic font sizing**: after `fitAddon.fit()`, if `term.cols < 70`, fontSize auto-reduces (14→10) to fit config screens. Mobile padding reduced to 2px
 
