@@ -1036,11 +1036,12 @@
 
     // On mobile, many keys fire as 'Unidentified' or keyCode 229.
     // Skip those -- beforeinput will handle them instead.
-    // iOS Chinese IME Enter sends key="" or key=" " before a fake Backspace — track it.
+    // iOS Chinese IME Enter sends key="\n\r" (codes [10,13]) or key=" " before
+    // a fake Backspace. Detect: keyCode=229 + key is whitespace/newline only.
     const _isUnidentified = e.key === 'Unidentified' || e.key === 'Process';
-    const _isEmptyKey = !_isUnidentified && e.keyCode === 229 && e.code === 'Unidentified' && e.key.length <= 1;
-    if (_isUnidentified || _isEmptyKey) {
-      if (_isEmptyKey) _emptyKeyTs = Date.now();
+    const _isWhitespaceKey = !_isUnidentified && e.keyCode === 229 && /^[\s\n\r]*$/.test(e.key);
+    if (_isUnidentified || _isWhitespaceKey) {
+      if (_isWhitespaceKey) _emptyKeyTs = Date.now();
       return;
     }
 
