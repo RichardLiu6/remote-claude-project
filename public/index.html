@@ -480,6 +480,7 @@
   // without blocking native horizontal touch-scroll on the quick-bar)
   function buildQuickBar() {
     const keys = [
+      { label: 'NL',   seq: '\x1b\r' },
       { label: 'Tab',  seq: '\t' },
       { label: '⇧Tab', seq: '\x1b[Z' },
       { label: '←',    seq: '\x1b[D' },
@@ -966,10 +967,12 @@
       wsSend('\x1b[3~');  // Forward delete escape sequence
       _dbg('ACTION', '<b style="color:#f00">SEND FWD-DEL</b>');
     } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+      // Suppress soft keyboard Enter — don't send \r.
+      // Terminal Enter is sent exclusively via quick-bar ↵ button.
+      // This eliminates the IME confirmation vs terminal Enter ambiguity.
       e.preventDefault();
-      wsSend('\r');
       resetSentState();
-      _dbg('ACTION', '<b style="color:#f00">SEND \\r (Enter)</b>');
+      _dbg('ACTION', '<b style="color:#f80">BLOCKED soft Enter (use ↵ button)</b>');
     }
   });
 
@@ -979,17 +982,9 @@
     if (justFinishedComposition) return;
     if (keydownHandled) { keydownHandled = false; return; }
 
-    // iOS Enter: insertParagraph is the real Enter signal (not insertLineBreak)
-    if (e.inputType === 'insertParagraph') {
-      wsSend('\r');
-      _dbg('ACTION', '<b style="color:#f00">INPUT SEND \\r (insertParagraph)</b>');
-      resetSentState();
-      _enterParagraphHandled = true;
-      return;
-    }
-    // Suppress trailing insertText " " that iOS fires after insertParagraph
-    if (_enterParagraphHandled) {
-      _enterParagraphHandled = false;
+    // Soft keyboard Enter was already blocked in beforeinput.
+    // If it leaks through, suppress it here too — terminal Enter is via quick-bar ↵ only.
+    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
       resetSentState();
       return;
     }
