@@ -42,6 +42,7 @@ final class FileUploadManager: NSObject, ObservableObject {
     /// Upload a file from a given URL.
     func uploadFile(url: URL, filename: String? = nil) {
         let name = filename ?? url.lastPathComponent
+        DebugLogStore.shared.log("Upload file: \(name)", category: .upload)
 
         // Start accessing security-scoped resource for document picker files
         let didStartAccessing = url.startAccessingSecurityScopedResource()
@@ -52,6 +53,7 @@ final class FileUploadManager: NSObject, ObservableObject {
         }
 
         guard let fileData = try? Data(contentsOf: url) else {
+            DebugLogStore.shared.log("Cannot read file: \(name)", category: .error)
             DispatchQueue.main.async {
                 self.uploadState = .error("Cannot read file: \(name)")
             }
@@ -63,7 +65,9 @@ final class FileUploadManager: NSObject, ObservableObject {
 
     /// Upload image data (from photo picker).
     func uploadImage(_ image: UIImage, filename: String = "photo.jpg") {
+        DebugLogStore.shared.log("Upload image: \(filename)", category: .upload)
         guard let data = image.jpegData(compressionQuality: 0.85) else {
+            DebugLogStore.shared.log("Cannot encode image", category: .error)
             DispatchQueue.main.async {
                 self.uploadState = .error("Cannot encode image")
             }
@@ -103,18 +107,20 @@ final class FileUploadManager: NSObject, ObservableObject {
         let task = session.dataTask(with: request) { [weak self] responseData, response, error in
             DispatchQueue.main.async {
                 if let error = error {
+                    DebugLogStore.shared.log("Upload error: \(error.localizedDescription)", category: .error)
                     self?.uploadState = .error(error.localizedDescription)
                     return
                 }
 
                 guard let httpResponse = response as? HTTPURLResponse else {
+                    DebugLogStore.shared.log("Upload: invalid response", category: .error)
                     self?.uploadState = .error("Invalid response")
                     return
                 }
 
                 if httpResponse.statusCode == 200 {
+                    DebugLogStore.shared.log("Upload success: \(filename)", category: .upload)
                     self?.uploadState = .success(filename: filename)
-                    // Auto-reset after 3 seconds
                     DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
                         if case .success = self?.uploadState {
                             self?.uploadState = .idle
@@ -122,6 +128,7 @@ final class FileUploadManager: NSObject, ObservableObject {
                     }
                 } else {
                     let message = responseData.flatMap { String(data: $0, encoding: .utf8) } ?? "HTTP \(httpResponse.statusCode)"
+                    DebugLogStore.shared.log("Upload failed: \(message)", category: .error)
                     self?.uploadState = .error("Upload failed: \(message)")
                 }
             }

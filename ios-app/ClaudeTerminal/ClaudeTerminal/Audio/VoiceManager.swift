@@ -38,8 +38,10 @@ final class VoiceManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
             let session = AVAudioSession.sharedInstance()
             try session.setCategory(.playback, mode: .default, options: [.mixWithOthers])
             try session.setActive(true)
+            DebugLogStore.shared.log("Audio session configured", category: .voice)
         } catch {
             print("[voice] audio session setup error: \(error.localizedDescription)")
+            DebugLogStore.shared.log("Audio session error: \(error.localizedDescription)", category: .error)
         }
     }
 
@@ -58,6 +60,7 @@ final class VoiceManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         guard let urlPath = payload["url"] as? String else { return }
 
         let text = payload["text"] as? String
+        DebugLogStore.shared.log("Voice event: \(text?.prefix(50) ?? urlPath)", category: .voice)
         DispatchQueue.main.async {
             self.lastSpokenText = text
         }
@@ -104,6 +107,7 @@ final class VoiceManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
     /// Toggle voice on/off via POST /api/voice-toggle.
     func toggleVoice() {
         guard let sessionName = sessionName else { return }
+        DebugLogStore.shared.log("Voice toggle requested for session: \(sessionName)", category: .voice)
 
         let urlString = "\(serverConfig.baseURL)/api/voice-toggle"
         guard let url = URL(string: urlString) else { return }
@@ -129,6 +133,7 @@ final class VoiceManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
             DispatchQueue.main.async {
                 self?.isVoiceEnabled = enabled
+                DebugLogStore.shared.log("Voice toggled: \(enabled ? "ON" : "OFF")", category: .voice)
             }
         }.resume()
     }
@@ -172,17 +177,17 @@ final class VoiceManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
 
     private func playAudioData(_ data: Data) {
         do {
-            // Stop any current playback
             audioPlayer?.stop()
-
             let player = try AVAudioPlayer(data: data)
             player.delegate = self
             player.prepareToPlay()
             player.play()
             audioPlayer = player
             isPlaying = true
+            DebugLogStore.shared.log("Playing audio (\(data.count) bytes)", category: .voice)
         } catch {
             print("[voice] playback error: \(error.localizedDescription)")
+            DebugLogStore.shared.log("Playback error: \(error.localizedDescription)", category: .error)
             isPlaying = false
         }
     }

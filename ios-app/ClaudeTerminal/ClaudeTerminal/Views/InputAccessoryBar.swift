@@ -29,8 +29,10 @@ struct InputAccessoryBar: View {
         case ctrlD
         case ctrlZ
         case ctrlL
+        case select       // v6: Trigger text selection mode
 
         /// The ANSI escape sequence or character to send via WebSocket.
+        /// Returns empty string for non-input actions (e.g. select).
         var ansiSequence: String {
             switch self {
             case .newline:   return "\r"
@@ -48,8 +50,12 @@ struct InputAccessoryBar: View {
             case .ctrlD:     return "\u{04}"
             case .ctrlZ:     return "\u{1A}"
             case .ctrlL:     return "\u{0C}"
+            case .select:    return ""
             }
         }
+
+        /// Whether this action sends terminal input or triggers a UI action.
+        var isTerminalInput: Bool { self != .select }
     }
 
     var body: some View {
@@ -76,6 +82,13 @@ struct InputAccessoryBar: View {
                         .frame(height: 24)
                         .background(Color.gray.opacity(0.3))
 
+                    // v6: Select button for text selection mode
+                    selectButton
+
+                    Divider()
+                        .frame(height: 24)
+                        .background(Color.gray.opacity(0.3))
+
                     keyButton("^A", icon: nil, action: .ctrlA)
                     keyButton("^E", icon: nil, action: .ctrlE)
                     keyButton("^R", icon: nil, action: .ctrlR)
@@ -88,6 +101,22 @@ struct InputAccessoryBar: View {
             .frame(height: isCompact ? 34 : 44)
             .background(Color(red: 0.15, green: 0.15, blue: 0.2))
         }
+    }
+
+    /// v6: Select button — visually distinct (purple tint) for text selection.
+    private var selectButton: some View {
+        Button {
+            onKey(.select)
+        } label: {
+            Label("Sel", systemImage: "text.cursor")
+                .font(.system(size: isCompact ? 12 : 14, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+                .padding(.horizontal, isCompact ? 8 : 12)
+                .padding(.vertical, isCompact ? 4 : 6)
+                .background(Color(red: 0.35, green: 0.2, blue: 0.5))
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
     }
 
     /// NL button — visually distinct (green tint) since it's the most-used key.

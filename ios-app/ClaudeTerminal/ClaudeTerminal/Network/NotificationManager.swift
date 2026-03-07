@@ -53,9 +53,11 @@ final class NotificationManager: ObservableObject {
         UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .sound, .badge]) { [weak self] granted, error in
             DispatchQueue.main.async {
                 self?.hasPermission = granted
+                DebugLogStore.shared.log("Notification permission: \(granted ? "granted" : "denied")", category: .system)
             }
             if let error = error {
                 print("[notify] permission error: \(error.localizedDescription)")
+                DebugLogStore.shared.log("Notification permission error: \(error.localizedDescription)", category: .error)
             }
         }
     }
@@ -85,6 +87,7 @@ final class NotificationManager: ObservableObject {
         for pattern in completionPatterns {
             if text.contains(pattern) {
                 lastNotificationTime = now
+                DebugLogStore.shared.log("Completion pattern matched, sending notification", category: .system)
                 sendNotification(
                     title: "Claude Terminal",
                     body: "Task completed in session \"\(sessionName)\""
@@ -102,6 +105,7 @@ final class NotificationManager: ObservableObject {
         let title = payload["title"] as? String ?? "Claude Terminal"
         let body = payload["body"] as? String ?? "Notification from session \"\(sessionName)\""
 
+        DebugLogStore.shared.log("Notify event: \(title) - \(body.prefix(40))", category: .system)
         sendNotification(title: title, body: body)
     }
 
@@ -122,6 +126,7 @@ final class NotificationManager: ObservableObject {
         UNUserNotificationCenter.current().add(request) { error in
             if let error = error {
                 print("[notify] send error: \(error.localizedDescription)")
+                DebugLogStore.shared.log("Notification send error: \(error.localizedDescription)", category: .error)
             }
         }
     }

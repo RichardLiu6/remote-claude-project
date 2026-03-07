@@ -27,6 +27,7 @@ struct TerminalView: View {
     @State private var showPhotoPicker = false
     @State private var showDocumentPicker = false
     @State private var showDebugPanel = false
+    @State private var triggerSelect = false
     @ObservedObject private var debugLogStore = DebugLogStore.shared
 
     init(sessionName: String, serverConfig: ServerConfig) {
@@ -56,11 +57,16 @@ struct TerminalView: View {
                     }
                     if landscape { landscapeMiniStatusBar }
                     SwiftTermView(wsManager: wsManager, notificationManager: notificationManager,
-                                  serverConfig: serverConfig, inScrollMode: $inScrollMode)
+                                  serverConfig: serverConfig, inScrollMode: $inScrollMode,
+                                  triggerSelect: $triggerSelect)
                         .ignoresSafeArea(.keyboard, edges: .bottom)
                     InputAccessoryBar(onKey: { action in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
-                        wsManager.sendInput(action.ansiSequence)
+                        if action == .select {
+                            triggerSelect = true
+                        } else {
+                            wsManager.sendInput(action.ansiSequence)
+                        }
                     }, isHidden: hasExternalKeyboard, isCompact: landscape)
                     .padding(.bottom, geo.safeAreaInsets.bottom)
                 }

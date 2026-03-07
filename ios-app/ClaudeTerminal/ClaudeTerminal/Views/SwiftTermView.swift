@@ -9,6 +9,8 @@ struct SwiftTermView: UIViewRepresentable {
     let notificationManager: NotificationManager
     let serverConfig: ServerConfig
     @Binding var inScrollMode: Bool
+    /// v6: Toggle to trigger text selection overlay from quick-bar Select button.
+    @Binding var triggerSelect: Bool
 
     func makeUIView(context: Context) -> TerminalContainerView {
         let container = TerminalContainerView()
@@ -80,7 +82,15 @@ struct SwiftTermView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: TerminalContainerView, context: Context) {
-        // No dynamic updates needed
+        // v6: Handle Select button trigger from quick-bar
+        if triggerSelect {
+            DispatchQueue.main.async {
+                triggerSelect = false
+                if let termView = context.coordinator.terminalView {
+                    uiView.showSelectionOverlay(for: termView)
+                }
+            }
+        }
     }
 
     /// Apply terminal color theme.
