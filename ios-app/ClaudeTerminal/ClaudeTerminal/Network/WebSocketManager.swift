@@ -30,6 +30,9 @@ final class WebSocketManager: ObservableObject {
     /// Called when a voice control frame arrives.
     var onVoiceEvent: (([String: Any]) -> Void)?
 
+    /// Called when a notification control frame arrives.
+    var onNotifyEvent: (([String: Any]) -> Void)?
+
     /// Called when the session ends (server sent "[session ended]").
     var onSessionEnded: (() -> Void)?
 
@@ -201,9 +204,11 @@ final class WebSocketManager: ObservableObject {
                 onVoiceEvent?(json)
             }
         } else if content.hasPrefix("notify:") {
-            // Future: handle notification control frames
             let jsonStr = String(content.dropFirst(7))
-            print("[ws] notification: \(jsonStr)")
+            if let data = jsonStr.data(using: .utf8),
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                onNotifyEvent?(json)
+            }
         } else {
             // Unknown control frame — ignore
             print("[ws] unknown control frame: \(content.prefix(20))...")

@@ -179,6 +179,8 @@ private struct SettingsSheet: View {
 
     @State private var hostText: String = ""
     @State private var portText: String = ""
+    @State private var fontSize: CGFloat = ServerConfig.defaultFontSize
+    @State private var selectedTheme: TerminalTheme = .dark
 
     var body: some View {
         NavigationStack {
@@ -202,10 +204,50 @@ private struct SettingsSheet: View {
                     }
                 }
 
+                Section("Terminal") {
+                    VStack(alignment: .leading, spacing: 8) {
+                        HStack {
+                            Text("Font Size")
+                            Spacer()
+                            Text("\(Int(fontSize)) pt")
+                                .font(.system(.body, design: .monospaced))
+                                .foregroundColor(.secondary)
+                        }
+                        Slider(value: $fontSize, in: 8...20, step: 1)
+                            .tint(.purple)
+
+                        // Preview
+                        Text("AaBbCc 012 Hello World")
+                            .font(.system(size: fontSize, design: .monospaced))
+                            .foregroundColor(.green)
+                            .padding(8)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(Color.black)
+                            .cornerRadius(6)
+                    }
+
+                    Picker("Theme", selection: $selectedTheme) {
+                        ForEach(TerminalTheme.allCases) { theme in
+                            Text(theme.rawValue).tag(theme)
+                        }
+                    }
+                }
+
+                Section("About") {
+                    HStack {
+                        Text("Version")
+                        Spacer()
+                        Text("2.0")
+                            .foregroundColor(.secondary)
+                    }
+                }
+
                 Section {
                     Button("Reset to Defaults") {
                         hostText = ServerConfig.defaultHost
                         portText = String(ServerConfig.defaultPort)
+                        fontSize = ServerConfig.defaultFontSize
+                        selectedTheme = ServerConfig.defaultTheme
                     }
                     .foregroundColor(.orange)
                 }
@@ -220,6 +262,8 @@ private struct SettingsSheet: View {
                     Button("Save") {
                         config.host = hostText.trimmingCharacters(in: .whitespaces)
                         config.port = Int(portText) ?? ServerConfig.defaultPort
+                        config.fontSize = fontSize
+                        config.theme = selectedTheme
                         onSave()
                         dismiss()
                     }
@@ -228,6 +272,8 @@ private struct SettingsSheet: View {
             .onAppear {
                 hostText = config.host
                 portText = String(config.port)
+                fontSize = config.fontSize
+                selectedTheme = config.theme
             }
         }
     }

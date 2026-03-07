@@ -17,6 +17,10 @@
 		A1000008 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000008; };
 		A1000009 /* Preview Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A2000009; };
 		A1000010 /* SwiftTerm in Frameworks */ = {isa = PBXBuildFile; productRef = A4000001; };
+		A1000011 /* ScrollGestureHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000011; };
+		A1000012 /* VoiceManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000012; };
+		A1000013 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013; };
+		A1000014 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -29,6 +33,10 @@
 		A2000007 /* ServerConfig.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ServerConfig.swift; sourceTree = "<group>"; };
 		A2000008 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		A2000009 /* Preview Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = "Preview Assets.xcassets"; sourceTree = "<group>"; };
+		A2000011 /* ScrollGestureHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScrollGestureHandler.swift; sourceTree = "<group>"; };
+		A2000012 /* VoiceManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceManager.swift; sourceTree = "<group>"; };
+		A2000013 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
+		A2000014 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A3000001 /* ClaudeTerminal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeTerminal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -59,6 +67,8 @@
 				A6000003 /* Views */,
 				A6000004 /* Network */,
 				A6000006 /* Models */,
+				A6000008 /* Gestures */,
+				A6000009 /* Audio */,
 				A2000008 /* Assets.xcassets */,
 				A6000007 /* Preview Content */,
 			);
@@ -79,6 +89,8 @@
 			isa = PBXGroup;
 			children = (
 				A2000004 /* WebSocketManager.swift */,
+				A2000013 /* NotificationManager.swift */,
+				A2000014 /* ClipboardBridge.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -106,6 +118,22 @@
 				A2000009 /* Preview Assets.xcassets */,
 			);
 			path = "Preview Content";
+			sourceTree = "<group>";
+		};
+		A6000008 /* Gestures */ = {
+			isa = PBXGroup;
+			children = (
+				A2000011 /* ScrollGestureHandler.swift */,
+			);
+			path = Gestures;
+			sourceTree = "<group>";
+		};
+		A6000009 /* Audio */ = {
+			isa = PBXGroup;
+			children = (
+				A2000012 /* VoiceManager.swift */,
+			);
+			path = Audio;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -192,6 +220,10 @@
 				A1000005 /* InputAccessoryBar.swift in Sources */,
 				A1000006 /* SessionModel.swift in Sources */,
 				A1000007 /* ServerConfig.swift in Sources */,
+				A1000011 /* ScrollGestureHandler.swift in Sources */,
+				A1000012 /* VoiceManager.swift in Sources */,
+				A1000013 /* NotificationManager.swift in Sources */,
+				A1000014 /* ClipboardBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -337,7 +369,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.claude.terminal;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -368,7 +400,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0;
+				MARKETING_VERSION = 2.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.claude.terminal;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
