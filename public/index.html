@@ -849,18 +849,27 @@
         if (_momentumRAF) { cancelAnimationFrame(_momentumRAF); _momentumRAF = null; }
       };
 
+      // Non-linear: small delta → precise, large delta → fast scan
+      const accelLines = (px) => {
+        const abs = Math.abs(px);
+        // Power curve: exponent 1.5 amplifies larger movements
+        const scaled = Math.pow(abs / 8, 1.5);
+        return Math.max(1, Math.round(scaled)) * Math.sign(px);
+      };
+
       const startMomentum = () => {
         stopMomentum();
         let v = _velocity;
         let lastSend = performance.now();
-        const decay = 0.92;
+        const decay = 0.90;
         const step = () => {
           v *= decay;
-          if (Math.abs(v) < 0.3) return; // stop threshold
+          if (Math.abs(v) < 3) return;
           const now = performance.now();
-          // Throttle server sends to ~60ms in momentum
           if (now - lastSend > 60) {
-            const lines = Math.max(1, Math.round(Math.abs(v)));
+            // Use same accel curve: px velocity → non-linear line count
+            const lines = Math.abs(accelLines(v));
+            if (lines < 1) return;
             const dir = v > 0 ? 'up' : 'down';
             wsSend('\x01scroll:' + dir + ':' + lines);
             lastSend = now;
@@ -884,12 +893,12 @@
           _touchMoved = true;
           const now = performance.now();
           const dt = now - _lastMoveTime || 16;
-          // Natural scroll: finger up (deltaY > 0) → scroll UP (see older = tmux scroll-up)
-          // INVERTED for iOS natural feel: finger up → content moves up → see newer → scroll-down
-          _pendingScroll += Math.round(-deltaY / 10);
-          // Track velocity for momentum (lines per 16ms frame)
-          _velocity = (-deltaY / 10) / (dt / 16);
-          _velocity = Math.max(-15, Math.min(15, _velocity)); // clamp
+          // iOS natural scroll: finger up → content moves up → see newer → scroll-down
+          // Non-linear acceleration: small swipe = precise, fast swipe = many lines
+          _pendingScroll += accelLines(-deltaY);
+          // Track velocity for momentum (pixels per 16ms frame, then accel in momentum)
+          _velocity = (-deltaY) / (dt / 16);
+          _velocity = Math.max(-80, Math.min(80, _velocity)); // clamp raw px velocity
           _touchStartY = e.touches[0].clientY;
           _lastMoveTime = now;
           // Throttle: flush at most every 50ms
@@ -909,8 +918,8 @@
           _scrollThrottleTimer = null;
         }
         flushScroll();
-        // Start momentum if velocity is significant
-        if (_touchMoved && Math.abs(_velocity) > 0.5) {
+        // Start momentum if velocity is significant (in px units now)
+        if (_touchMoved && Math.abs(_velocity) > 5) {
           startMomentum();
         }
         if (!_touchMoved) {
