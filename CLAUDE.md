@@ -69,3 +69,7 @@ chmod +x node_modules/node-pty/prebuilds/darwin-arm64/spawn-helper
 **CJK rendering**: node-pty env must include `LANG` and `LC_ALL` (nohup-started processes lose locale). Both `start-claude.sh` (`export LANG`) and `server.js` (node-pty env option) set these explicitly. Without them, Chinese characters render as underscores.
 
 **SSH cold-start**: `start_web_terminal()` in start-claude.sh uses double-subshell with full fd redirect `(cd ... && nohup node server.js </dev/null >/dev/null 2>&1 &) </dev/null >/dev/null 2>&1` — required because iOS Shortcuts SSH tracks child process file descriptors and hangs otherwise.
+
+## Second Brain
+
+项目记忆：`second-brain/TODO.md`（活跃任务）、`DONE.md`（归档）、`long-term.md`（随记索引）。详情放 `docs/`。用 `/sb` 查看 dashboard。
