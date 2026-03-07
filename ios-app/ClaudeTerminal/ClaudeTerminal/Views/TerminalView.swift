@@ -17,6 +17,11 @@ import SwiftTerm
 ///   - Foreground/background reconnect via scenePhase
 ///   - Session switcher without leaving terminal
 ///   - External keyboard detection (hide quick-bar)
+///
+/// v5 refactor:
+///   - Top bar extracted to TerminalToolbar.swift
+///   - Session switcher extracted to SessionSwitcher.swift
+///   - Landscape optimization (auto-hide top bar)
 struct TerminalView: View {
     @State var sessionName: String
     let serverConfig: ServerConfig
@@ -35,6 +40,7 @@ struct TerminalView: View {
     @State private var showSessionSwitcher = false
     @State private var availableSessions: [TmuxSession] = []
     @State private var hasExternalKeyboard = false
+    @State private var isLandscape = false
 
     init(sessionName: String, serverConfig: ServerConfig) {
         self._sessionName = State(initialValue: sessionName)
@@ -45,10 +51,35 @@ struct TerminalView: View {
 
     var body: some View {
         GeometryReader { geometry in
+            let landscape = geometry.size.width > geometry.size.height
+
             VStack(spacing: 0) {
-                // Top bar: session name + connection status + voice toggle + close button
-                topBar
+                // v5: Hide top bar in landscape for maximum terminal space
+                if !landscape {
+                    TerminalToolbar(
+                        sessionName: sessionName,
+                        wsManager: wsManager,
+                        voiceManager: voiceManager,
+                        networkMonitor: networkMonitor,
+                        serverConfig: serverConfig,
+                        inScrollMode: inScrollMode,
+                        onDismiss: {
+                            wsManager.disconnect()
+                            dismiss()
+                        },
+                        onShowSessionSwitcher: {
+                            Task {
+                                availableSessions = (try? await WebSocketManager.fetchSessions(config: serverConfig)) ?? []
+                                showSessionSwitcher = true
+                            }
+                        },
+                        onShowClipboard: { content in
+                            macClipboardContent = content
+                            showClipboardMenu = true
+                        }
+                    )
                     .padding(.top, geometry.safeAreaInsets.top)
+                }
 
                 // Terminal area with scroll gesture overlay
                 SwiftTermView(
@@ -60,16 +91,19 @@ struct TerminalView: View {
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
                 // Quick-key bar above keyboard (hidden when external keyboard connected)
+                // v5: Compact layout in landscape
                 InputAccessoryBar(onKey: { action in
-                    // Light haptic on quick-bar button press
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     wsManager.sendInput(action.ansiSequence)
-                }, isHidden: hasExternalKeyboard)
+                }, isHidden: hasExternalKeyboard, isCompact: landscape)
                 .padding(.bottom, geometry.safeAreaInsets.bottom)
             }
             .padding(.leading, geometry.safeAreaInsets.leading)
             .padding(.trailing, geometry.safeAreaInsets.trailing)
+            .onChange(of: landscape) { newValue in
+                isLandscape = newValue
+            }
         }
         .background(Color.black)
         .edgesIgnoringSafeArea(.all)
@@ -79,7 +113,6 @@ struct TerminalView: View {
             notificationManager.setSession(sessionName)
             notificationManager.requestPermission()
 
-            // Save last session for quick-launch on next app start
             UserDefaults.standard.set(sessionName, forKey: "last_session_name")
 
             wsManager.onSessionEnded = {
@@ -92,7 +125,6 @@ struct TerminalView: View {
             wsManager.onNotifyEvent = { payload in
                 notificationManager.handleNotifyEvent(payload)
             }
-            // Haptic feedback on connection state changes
             wsManager.onConnectionStateChanged = { newState in
                 switch newState {
                 case .connected:
@@ -106,7 +138,6 @@ struct TerminalView: View {
                 }
             }
 
-            // v4: Network monitor — auto-reconnect on network change
             networkMonitor.onNetworkRestored = { [weak wsManager] in
                 guard let ws = wsManager else { return }
                 if !ws.connectionState.isConnected {
@@ -116,10 +147,9 @@ struct TerminalView: View {
             }
             networkMonitor.onNetworkLost = { [weak wsManager] in
                 print("[network] network lost, WebSocket will detect on next receive")
-                _ = wsManager // suppress warning
+                _ = wsManager
             }
 
-            // v4: External keyboard detection
             setupExternalKeyboardDetection()
         }
         .onDisappear {
@@ -127,10 +157,8 @@ struct TerminalView: View {
             voiceManager.stop()
             networkMonitor.stopMonitoring()
         }
-        // v4: Foreground/background reconnect
         .onChange(of: scenePhase) { newPhase in
             if newPhase == .active {
-                // App came to foreground — check WebSocket and reconnect if needed
                 if !wsManager.connectionState.isConnected {
                     print("[lifecycle] app returned to foreground, reconnecting...")
                     wsManager.reconnect()
@@ -167,7 +195,6 @@ struct TerminalView: View {
         } message: {
             Text("Choose clipboard source")
         }
-        // v4: Session switcher sheet
         .sheet(isPresented: $showSessionSwitcher) {
             SessionSwitcherSheet(
                 currentSession: sessionName,
@@ -178,6 +205,21 @@ struct TerminalView: View {
             )
             .presentationDetents([.medium])
         }
+        // v5: Swipe down from top edge to show toolbar in landscape
+        .gesture(
+            isLandscape ?
+            DragGesture(minimumDistance: 30)
+                .onEnded { value in
+                    if value.translation.height > 50 && value.startLocation.y < 44 {
+                        // Swipe down from top edge — show session switcher as proxy for toolbar actions
+                        Task {
+                            availableSessions = (try? await WebSocketManager.fetchSessions(config: serverConfig)) ?? []
+                            showSessionSwitcher = true
+                        }
+                    }
+                }
+            : nil
+        )
         .statusBarHidden(true)
     }
 
@@ -196,15 +238,12 @@ struct TerminalView: View {
     // MARK: - External keyboard detection
 
     private func setupExternalKeyboardDetection() {
-        // Monitor keyboard show/hide to detect external keyboard
         NotificationCenter.default.addObserver(
             forName: UIResponder.keyboardWillShowNotification,
             object: nil,
             queue: .main
         ) { notification in
             if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
-                // External keyboard: keyboard frame height is very small (just the input bar)
-                // Software keyboard: typically > 200pt
                 hasExternalKeyboard = frame.height < 100
             }
         }
@@ -213,7 +252,6 @@ struct TerminalView: View {
             object: nil,
             queue: .main
         ) { _ in
-            // When keyboard hides, reset — show quick bar again when soft keyboard returns
             hasExternalKeyboard = false
         }
     }
@@ -247,142 +285,6 @@ struct TerminalView: View {
             return "Failed to reconnect after maximum retries. The server may be down."
         case .none:
             return "Connection was closed."
-        }
-    }
-
-    // MARK: - Top Bar
-
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            Button {
-                wsManager.disconnect()
-                dismiss()
-            } label: {
-                Image(systemName: "xmark.circle.fill")
-                    .font(.title3)
-                    .foregroundColor(.gray)
-            }
-
-            // v4: Tappable session name for quick switching
-            Button {
-                Task {
-                    availableSessions = (try? await WebSocketManager.fetchSessions(config: serverConfig)) ?? []
-                    showSessionSwitcher = true
-                }
-            } label: {
-                VStack(alignment: .leading, spacing: 1) {
-                    HStack(spacing: 4) {
-                        Text(sessionName)
-                            .font(.system(.subheadline, design: .monospaced))
-                            .fontWeight(.semibold)
-                            .foregroundColor(.white)
-                        Image(systemName: "chevron.down")
-                            .font(.system(size: 8, weight: .bold))
-                            .foregroundColor(.gray)
-                    }
-
-                    HStack(spacing: 4) {
-                        // Connection status indicator
-                        connectionStatusDot
-
-                        if let error = wsManager.connectionError {
-                            Text(error)
-                                .font(.caption2)
-                                .foregroundColor(.orange)
-                                .lineLimit(1)
-                        } else {
-                            Text(wsManager.connectionState.statusText)
-                                .font(.caption2)
-                                .foregroundColor(connectionStatusTextColor)
-                        }
-
-                        // v4: Network type indicator
-                        if !networkMonitor.isConnected {
-                            Text("NO NET")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.red)
-                                .cornerRadius(3)
-                        }
-
-                        if inScrollMode {
-                            Text("SCROLL")
-                                .font(.system(size: 9, weight: .bold, design: .monospaced))
-                                .foregroundColor(.black)
-                                .padding(.horizontal, 4)
-                                .padding(.vertical, 1)
-                                .background(Color.yellow)
-                                .cornerRadius(3)
-                        }
-                    }
-                }
-            }
-
-            Spacer()
-
-            // Clipboard bridge button
-            Button {
-                Task {
-                    let bridge = ClipboardBridge(config: serverConfig)
-                    macClipboardContent = try? await bridge.fetchMacClipboard()
-                    showClipboardMenu = true
-                }
-            } label: {
-                Image(systemName: "doc.on.clipboard")
-                    .font(.system(size: 16))
-                    .foregroundColor(.gray)
-            }
-
-            // Voice toggle button
-            Button {
-                voiceManager.toggleVoice()
-            } label: {
-                Image(systemName: voiceManager.isVoiceEnabled ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                    .font(.system(size: 16))
-                    .foregroundColor(voiceManager.isVoiceEnabled ? .green : .gray)
-            }
-
-            if voiceManager.isPlaying {
-                Image(systemName: "waveform")
-                    .font(.system(size: 14))
-                    .foregroundColor(.green)
-            }
-        }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
-        .background(Color(red: 0.1, green: 0.1, blue: 0.15))
-    }
-
-    // MARK: - Connection status visuals
-
-    @ViewBuilder
-    private var connectionStatusDot: some View {
-        Circle()
-            .fill(connectionDotColor)
-            .frame(width: 6, height: 6)
-    }
-
-    private var connectionDotColor: SwiftUI.Color {
-        switch wsManager.connectionState {
-        case .connected:
-            return .green
-        case .connecting, .reconnecting:
-            return .yellow
-        case .disconnected:
-            return .red
-        }
-    }
-
-    private var connectionStatusTextColor: SwiftUI.Color {
-        switch wsManager.connectionState {
-        case .connected:
-            return .gray
-        case .connecting, .reconnecting:
-            return .orange
-        case .disconnected:
-            return .red
         }
     }
 }
@@ -506,8 +408,6 @@ struct SwiftTermView: UIViewRepresentable {
         // MARK: - TerminalViewDelegate
 
         func send(source: SwiftTerm.TerminalView, data: ArraySlice<UInt8>) {
-            // When using IME proxy, SwiftTerm keyboard input is routed here.
-            // We still handle it for hardware keyboard / non-IME input.
             let bytes = Array(data)
             if let str = String(bytes: bytes, encoding: .utf8) {
                 wsManager.sendInput(str)
@@ -543,7 +443,6 @@ struct SwiftTermView: UIViewRepresentable {
         func rangeChanged(source: SwiftTerm.TerminalView, startY: Int, endY: Int) { }
 
         func bell(source: SwiftTerm.TerminalView) {
-            // Medium impact haptic on bell
             let generator = UIImpactFeedbackGenerator(style: .medium)
             generator.impactOccurred()
         }
@@ -907,73 +806,6 @@ class IMETextField: UITextField, UITextFieldDelegate {
         let controlCode = Int(char.asciiValue ?? 0) - Int(Character("a").asciiValue ?? 0) + 1
         if controlCode >= 1 && controlCode <= 26 {
             onSpecialKey?(String(UnicodeScalar(controlCode)!))
-        }
-    }
-}
-
-// MARK: - Session Switcher Sheet (v4)
-
-/// A half-sheet that lets the user switch tmux sessions without leaving the terminal.
-/// Tap a different session to disconnect current and connect to the new one.
-private struct SessionSwitcherSheet: View {
-    let currentSession: String
-    let sessions: [TmuxSession]
-    var onSelect: (String) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            List(sessions) { session in
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack(spacing: 6) {
-                            Image(systemName: "terminal.fill")
-                                .foregroundColor(session.name == currentSession ? .green : .gray)
-                            Text(session.name)
-                                .font(.system(.body, design: .monospaced))
-                                .fontWeight(session.name == currentSession ? .bold : .medium)
-                                .foregroundColor(.white)
-                        }
-                        HStack(spacing: 12) {
-                            Label("\(session.windows) window\(session.windows == 1 ? "" : "s")",
-                                  systemImage: "rectangle.split.3x1")
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                            Text(session.createdDescription)
-                                .font(.caption)
-                                .foregroundColor(.gray)
-                        }
-                    }
-                    Spacer()
-                    if session.name == currentSession {
-                        Image(systemName: "checkmark.circle.fill")
-                            .foregroundColor(.green)
-                    }
-                }
-                .padding(.vertical, 4)
-                .contentShape(Rectangle())
-                .onTapGesture {
-                    if session.name != currentSession {
-                        dismiss()
-                        onSelect(session.name)
-                    }
-                }
-                .listRowBackground(
-                    session.name == currentSession
-                        ? Color(red: 0.1, green: 0.2, blue: 0.15)
-                        : Color(red: 0.09, green: 0.13, blue: 0.24)
-                )
-            }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
-            .background(Color(red: 0.1, green: 0.1, blue: 0.18))
-            .navigationTitle("Switch Session")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Done") { dismiss() }
-                }
-            }
         }
     }
 }

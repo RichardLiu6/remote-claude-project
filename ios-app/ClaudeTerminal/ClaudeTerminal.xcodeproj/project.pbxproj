@@ -22,6 +22,8 @@
 		A1000013 /* NotificationManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000013; };
 		A1000014 /* ClipboardBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000014; };
 		A1000015 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
+		A1000016 /* TerminalToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
+		A1000017 /* SessionSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -39,6 +41,8 @@
 		A2000013 /* NotificationManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationManager.swift; sourceTree = "<group>"; };
 		A2000014 /* ClipboardBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardBridge.swift; sourceTree = "<group>"; };
 		A2000015 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
+		A2000016 /* TerminalToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalToolbar.swift; sourceTree = "<group>"; };
+		A2000017 /* SessionSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSwitcher.swift; sourceTree = "<group>"; };
 		A3000001 /* ClaudeTerminal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeTerminal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -82,6 +86,8 @@
 			children = (
 				A2000002 /* SessionPickerView.swift */,
 				A2000003 /* TerminalView.swift */,
+				A2000016 /* TerminalToolbar.swift */,
+				A2000017 /* SessionSwitcher.swift */,
 				A2000005 /* InputAccessoryBar.swift */,
 			);
 			path = Views;
@@ -228,6 +234,8 @@
 				A1000013 /* NotificationManager.swift in Sources */,
 				A1000014 /* ClipboardBridge.swift in Sources */,
 				A1000015 /* NetworkMonitor.swift in Sources */,
+				A1000016 /* TerminalToolbar.swift in Sources */,
+				A1000017 /* SessionSwitcher.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

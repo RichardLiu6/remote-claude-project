@@ -10,6 +10,9 @@ struct InputAccessoryBar: View {
     /// Whether to hide the bar (e.g. when external keyboard is connected).
     var isHidden: Bool = false
 
+    /// v5: Compact mode for landscape — reduced padding and height.
+    var isCompact: Bool = false
+
     enum KeyAction {
         case newline      // NL — send Enter (\r), the #1 most-used key
         case tab
@@ -82,7 +85,7 @@ struct InputAccessoryBar: View {
                 }
                 .padding(.horizontal, 8)
             }
-            .frame(height: 44)
+            .frame(height: isCompact ? 34 : 44)
             .background(Color(red: 0.15, green: 0.15, blue: 0.2))
         }
     }
@@ -93,10 +96,10 @@ struct InputAccessoryBar: View {
             onKey(.newline)
         } label: {
             Text("NL")
-                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .font(.system(size: isCompact ? 12 : 14, weight: .bold, design: .monospaced))
                 .foregroundColor(.white)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 6)
+                .padding(.horizontal, isCompact ? 10 : 14)
+                .padding(.vertical, isCompact ? 4 : 6)
                 .background(Color(red: 0.2, green: 0.45, blue: 0.3))
                 .cornerRadius(6)
         }
@@ -119,10 +122,10 @@ struct InputAccessoryBar: View {
                     Text(label ?? "")
                 }
             }
-            .font(.system(size: 14, weight: .medium, design: .monospaced))
+            .font(.system(size: isCompact ? 12 : 14, weight: .medium, design: .monospaced))
             .foregroundColor(.white)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 6)
+            .padding(.horizontal, isCompact ? 8 : 12)
+            .padding(.vertical, isCompact ? 4 : 6)
             .background(Color(red: 0.25, green: 0.25, blue: 0.35))
             .cornerRadius(6)
         }
