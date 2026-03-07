@@ -90,22 +90,21 @@
       /* Ensure xterm fills the container */
       position: relative;
       padding: 0 8px;
-      touch-action: pan-y;  /* Allow vertical swipe to reach xterm-viewport */
+      touch-action: none;  /* JS handles all touch scroll via touchmove handler */
     }
     @media (max-width: 768px) {
       #terminal-container { padding: 0 2px; }
     }
     #terminal-container .xterm {
       height: 100%;
-      touch-action: pan-y !important;  /* Override xterm.js internal touch-action: none */
+      touch-action: none !important;  /* Let JS handle all touch — browser native scroll fights with scrollLines() */
     }
     #terminal-container .xterm-screen {
-      touch-action: pan-y !important;  /* Same override on screen layer */
+      touch-action: none !important;  /* Same — JS handles scroll via touchmove */
     }
     #terminal-container .xterm-viewport {
-      -webkit-overflow-scrolling: touch;
-      touch-action: pan-y;          /* Allow vertical touch scroll */
-      overscroll-behavior: contain;  /* Prevent scroll bleed to body */
+      touch-action: none !important;  /* Prevent browser from consuming touch gestures */
+      overscroll-behavior: contain;
     }
 
     /* Hidden textarea for mobile keyboard capture.
