@@ -1,0 +1,483 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Input Debug Harness</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    height: 100dvh;
+    width: 100vw;
+    overflow: hidden;
+    background: #0d1117;
+    color: #c9d1d9;
+    font-family: Menlo, Monaco, 'Courier New', monospace;
+    font-size: 13px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  /* Header */
+  .header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 8px 12px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+  }
+  .header h1 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #e6edf3;
+  }
+  .header-buttons {
+    display: flex;
+    gap: 8px;
+  }
+  .header-buttons button {
+    background: #21262d;
+    color: #c9d1d9;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 4px 12px;
+    font-family: inherit;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .header-buttons button:active {
+    background: #30363d;
+  }
+
+  /* Touch Area */
+  .touch-area {
+    height: 35%;
+    min-height: 120px;
+    flex-shrink: 0;
+    background: #1a1a2e;
+    border-bottom: 1px solid #30363d;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+  }
+  .touch-area-label {
+    color: #484f58;
+    font-size: 13px;
+    text-align: center;
+    pointer-events: none;
+  }
+
+  /* State Badges */
+  .badges-bar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 12px;
+    background: #161b22;
+    border-bottom: 1px solid #30363d;
+    flex-shrink: 0;
+  }
+  .badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    font-size: 11px;
+    background: #21262d;
+    color: #8b949e;
+    border: 1px solid #30363d;
+    white-space: nowrap;
+  }
+  .badge.active-blue {
+    background: #0d419d;
+    color: #79c0ff;
+    border-color: #1f6feb;
+  }
+  .badge.active-yellow {
+    background: #5a4300;
+    color: #f0c000;
+    border-color: #9e6a00;
+  }
+  .badge.active-red {
+    background: #6e1818;
+    color: #ff7b72;
+    border-color: #da3633;
+  }
+
+  /* Input Section */
+  .input-section {
+    padding: 8px 12px;
+    flex-shrink: 0;
+    border-bottom: 1px solid #30363d;
+  }
+  .input-section label {
+    display: block;
+    font-size: 11px;
+    color: #8b949e;
+    margin-bottom: 4px;
+  }
+  #test-input {
+    width: 100%;
+    height: 40px;
+    background: #0d1117;
+    color: #e6edf3;
+    border: 1px solid #30363d;
+    border-radius: 6px;
+    padding: 8px;
+    font-family: Menlo, Monaco, 'Courier New', monospace;
+    font-size: 16px;
+    resize: none;
+    outline: none;
+    autocorrect: off;
+    autocapitalize: off;
+  }
+  #test-input:focus {
+    border-color: #1f6feb;
+  }
+
+  /* Event Log */
+  .event-log {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    padding: 8px 12px;
+    -webkit-overflow-scrolling: touch;
+  }
+  .log-entry {
+    padding: 2px 0;
+    line-height: 1.4;
+    word-break: break-all;
+    font-size: 11px;
+  }
+  .log-time { color: #484f58; }
+  .log-type-touch { color: #f0883e; }
+  .log-type-input { color: #58a6ff; }
+  .log-type-state { color: #7ee787; }
+  .log-type-send { color: #d2a8ff; }
+  .log-type-focus { color: #79c0ff; }
+  .log-type-compose { color: #ffa657; }
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<div class="header">
+  <h1>Input Debug Harness</h1>
+  <div class="header-buttons">
+    <button id="btn-clear">Clear</button>
+    <button id="btn-pause">Pause</button>
+  </div>
+</div>
+
+<!-- Touch Area -->
+<div class="touch-area" id="touch-area">
+  <div class="touch-area-label">Touch Area<br>(tap / swipe / long-press here)</div>
+</div>
+
+<!-- State Badges -->
+<div class="badges-bar" id="badges-bar">
+  <span class="badge" id="badge-ic">IC: IDLE</span>
+  <span class="badge" id="badge-selecting">sel: false</span>
+  <span class="badge" id="badge-moved">moved: false</span>
+  <span class="badge" id="badge-keyboard">kb: closed</span>
+  <span class="badge" id="badge-scroll">scroll: off</span>
+  <span class="badge" id="badge-pointer">ptr: ok</span>
+  <span class="badge" id="badge-focus">focus: none</span>
+</div>
+
+<!-- Input Section -->
+<div class="input-section">
+  <label for="test-input">test-input textarea</label>
+  <textarea id="test-input" autocorrect="off" autocapitalize="off" autocomplete="off" spellcheck="false"></textarea>
+</div>
+
+<!-- Event Log -->
+<div class="event-log" id="event-log"></div>
+
+<script>
+(function() {
+  'use strict';
+
+  // --- State ---
+  var state = {
+    icState: 'IDLE',       // IDLE | BUFFERING | COMPOSING | FLUSHING
+    isSelecting: false,
+    touchMoved: false,
+    keyboardOpen: false,
+    scrollMode: false,
+    pointerEvents: 'ok',   // 'ok' | 'none'
+    focusTarget: 'none'
+  };
+
+  var paused = false;
+  var MAX_ENTRIES = 500;
+  var longPressTimer = null;
+  var touchStartX = 0;
+  var touchStartY = 0;
+
+  // --- DOM refs ---
+  var logEl = document.getElementById('event-log');
+  var btnClear = document.getElementById('btn-clear');
+  var btnPause = document.getElementById('btn-pause');
+  var touchArea = document.getElementById('touch-area');
+  var testInput = document.getElementById('test-input');
+
+  var badges = {
+    ic: document.getElementById('badge-ic'),
+    selecting: document.getElementById('badge-selecting'),
+    moved: document.getElementById('badge-moved'),
+    keyboard: document.getElementById('badge-keyboard'),
+    scroll: document.getElementById('badge-scroll'),
+    pointer: document.getElementById('badge-pointer'),
+    focus: document.getElementById('badge-focus')
+  };
+
+  // --- Logging ---
+  function formatTime() {
+    var d = new Date();
+    var mm = String(d.getMinutes()).padStart(2, '0');
+    var ss = String(d.getSeconds()).padStart(2, '0');
+    var ms = String(d.getMilliseconds()).padStart(3, '0');
+    return mm + ':' + ss + '.' + ms;
+  }
+
+  function log(type, detail) {
+    if (paused) return;
+    var entry = document.createElement('div');
+    entry.className = 'log-entry';
+    entry.innerHTML =
+      '<span class="log-time">[' + formatTime() + ']</span> ' +
+      '<span class="log-type-' + type + '">[' + type + ']</span> ' +
+      escapeHtml(detail);
+    logEl.appendChild(entry);
+
+    // Trim old entries
+    while (logEl.children.length > MAX_ENTRIES) {
+      logEl.removeChild(logEl.firstChild);
+    }
+
+    // Auto-scroll
+    logEl.scrollTop = logEl.scrollHeight;
+  }
+
+  function escapeHtml(s) {
+    return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  }
+
+  // --- Badge updates ---
+  function updateBadges() {
+    // IC state
+    badges.ic.textContent = 'IC: ' + state.icState;
+    badges.ic.className = 'badge' + (state.icState !== 'IDLE' ? ' active-blue' : '');
+
+    // selecting
+    badges.selecting.textContent = 'sel: ' + state.isSelecting;
+    badges.selecting.className = 'badge' + (state.isSelecting ? ' active-yellow' : '');
+
+    // moved
+    badges.moved.textContent = 'moved: ' + state.touchMoved;
+    badges.moved.className = 'badge' + (state.touchMoved ? ' active-blue' : '');
+
+    // keyboard
+    badges.keyboard.textContent = 'kb: ' + (state.keyboardOpen ? 'open' : 'closed');
+    badges.keyboard.className = 'badge' + (state.keyboardOpen ? ' active-blue' : '');
+
+    // scroll
+    badges.scroll.textContent = 'scroll: ' + (state.scrollMode ? 'on' : 'off');
+    badges.scroll.className = 'badge' + (state.scrollMode ? ' active-blue' : '');
+
+    // pointer
+    badges.pointer.textContent = 'ptr: ' + state.pointerEvents;
+    badges.pointer.className = 'badge' + (state.pointerEvents === 'none' ? ' active-red' : '');
+
+    // focus
+    badges.focus.textContent = 'focus: ' + state.focusTarget;
+    badges.focus.className = 'badge' + (state.focusTarget !== 'none' ? ' active-blue' : '');
+  }
+
+  function setState(key, value, source) {
+    var old = state[key];
+    if (old === value) return;
+    state[key] = value;
+    log('state', key + ': ' + old + ' -> ' + value + (source ? ' (' + source + ')' : ''));
+    updateBadges();
+  }
+
+  // --- Header buttons ---
+  btnClear.addEventListener('click', function() {
+    logEl.innerHTML = '';
+  });
+
+  btnPause.addEventListener('click', function() {
+    paused = !paused;
+    btnPause.textContent = paused ? 'Resume' : 'Pause';
+    btnPause.style.background = paused ? '#6e1818' : '';
+  });
+
+  // --- Touch Area Events ---
+  touchArea.addEventListener('touchstart', function(e) {
+    var t = e.touches[0];
+    touchStartX = t.clientX;
+    touchStartY = t.clientY;
+    setState('touchMoved', false, 'touchstart');
+    setState('isSelecting', false, 'touchstart');
+    setState('pointerEvents', 'ok', 'touchstart');
+
+    // Start long-press timer
+    clearTimeout(longPressTimer);
+    longPressTimer = setTimeout(function() {
+      setState('isSelecting', true, 'long-press 500ms');
+      log('touch', 'LONG-PRESS triggered at (' + Math.round(touchStartX) + ',' + Math.round(touchStartY) + ')');
+    }, 500);
+
+    log('touch', 'touchstart (' + Math.round(t.clientX) + ',' + Math.round(t.clientY) + ') touches=' + e.touches.length);
+  }, { passive: true });
+
+  touchArea.addEventListener('touchmove', function(e) {
+    var t = e.touches[0];
+    var dx = t.clientX - touchStartX;
+    var dy = t.clientY - touchStartY;
+
+    if (state.isSelecting) {
+      log('touch', 'SELECTING drag (' + Math.round(t.clientX) + ',' + Math.round(t.clientY) + ') dx=' + Math.round(dx) + ' dy=' + Math.round(dy));
+      return;
+    }
+
+    if (Math.abs(dy) > 5 && !state.touchMoved) {
+      clearTimeout(longPressTimer);
+      setState('touchMoved', true, 'touchmove deltaY=' + Math.round(dy));
+      setState('scrollMode', true, 'touchmove');
+      log('touch', 'touchmove -> scroll mode (' + Math.round(t.clientX) + ',' + Math.round(t.clientY) + ') dy=' + Math.round(dy));
+    } else if (state.touchMoved) {
+      log('touch', 'touchmove scrolling (' + Math.round(t.clientX) + ',' + Math.round(t.clientY) + ') dy=' + Math.round(dy));
+    }
+  }, { passive: true });
+
+  touchArea.addEventListener('touchend', function(e) {
+    clearTimeout(longPressTimer);
+    var ct = e.changedTouches[0];
+
+    if (state.isSelecting) {
+      setState('isSelecting', false, 'touchend');
+      setState('pointerEvents', 'ok', 'touchend');
+      log('touch', 'SELECTION END at (' + Math.round(ct.clientX) + ',' + Math.round(ct.clientY) + ')');
+      updateBadges();
+      return;
+    }
+
+    if (!state.touchMoved) {
+      // Tap: exit scroll, focus input
+      setState('scrollMode', false, 'tap');
+      testInput.focus();
+      log('touch', 'touchend TAP -> focus input (' + Math.round(ct.clientX) + ',' + Math.round(ct.clientY) + ')');
+    } else if (state.keyboardOpen) {
+      // Swipe while keyboard open: refocus
+      testInput.focus();
+      log('touch', 'touchend SWIPE (kb open) -> refocus (' + Math.round(ct.clientX) + ',' + Math.round(ct.clientY) + ')');
+    } else {
+      log('touch', 'touchend SWIPE (' + Math.round(ct.clientX) + ',' + Math.round(ct.clientY) + ')');
+    }
+
+    updateBadges();
+  }, { passive: true });
+
+  touchArea.addEventListener('touchcancel', function() {
+    clearTimeout(longPressTimer);
+    log('touch', 'touchcancel');
+  });
+
+  // --- Input Events ---
+  testInput.addEventListener('compositionstart', function(e) {
+    setState('icState', 'COMPOSING', 'compositionstart');
+    log('compose', 'compositionstart data="' + (e.data || '') + '"');
+  });
+
+  testInput.addEventListener('compositionend', function(e) {
+    setState('icState', 'BUFFERING', 'compositionend');
+    log('compose', 'compositionend data="' + (e.data || '') + '"');
+    // Simulate debounce return to IDLE
+    setTimeout(function() {
+      if (state.icState === 'BUFFERING') {
+        setState('icState', 'FLUSHING', 'debounce');
+        log('send', 'flush: "' + testInput.value + '"');
+        setTimeout(function() {
+          setState('icState', 'IDLE', 'flush-done');
+        }, 10);
+      }
+    }, 150);
+  });
+
+  testInput.addEventListener('beforeinput', function(e) {
+    log('input', 'beforeinput inputType=' + e.inputType + ' data="' + (e.data || '') + '"');
+  });
+
+  testInput.addEventListener('input', function(e) {
+    var val = testInput.value;
+    var displayVal = val.length > 40 ? val.substring(0, 40) + '...' : val;
+    log('input', 'input inputType=' + (e.inputType || '?') + ' value="' + displayVal + '" len=' + val.length);
+
+    // Simulate state transitions for non-composing input
+    if (state.icState === 'IDLE') {
+      setState('icState', 'BUFFERING', 'input');
+      setTimeout(function() {
+        if (state.icState === 'BUFFERING') {
+          setState('icState', 'FLUSHING', 'debounce');
+          log('send', 'flush: "' + testInput.value + '"');
+          setTimeout(function() {
+            setState('icState', 'IDLE', 'flush-done');
+          }, 10);
+        }
+      }, 150);
+    }
+  });
+
+  testInput.addEventListener('keydown', function(e) {
+    var parts = 'key=' + e.key + ' code=' + e.code;
+    if (e.ctrlKey) parts += ' ctrl';
+    if (e.metaKey) parts += ' meta';
+    if (e.shiftKey) parts += ' shift';
+    if (e.altKey) parts += ' alt';
+    log('input', 'keydown ' + parts);
+  });
+
+  // --- Focus Events ---
+  testInput.addEventListener('focus', function() {
+    setState('focusTarget', 'test-input', 'focus');
+    log('focus', 'focus on test-input');
+  });
+
+  testInput.addEventListener('blur', function() {
+    setState('focusTarget', 'none', 'blur');
+    log('focus', 'blur from test-input');
+  });
+
+  // --- Keyboard Detection via visualViewport ---
+  if (window.visualViewport) {
+    window.visualViewport.addEventListener('resize', function() {
+      var vvHeight = window.visualViewport.height;
+      var winHeight = window.innerHeight;
+      var kbHeight = winHeight - vvHeight;
+      var isOpen = kbHeight > 50;
+      if (isOpen !== state.keyboardOpen) {
+        setState('keyboardOpen', isOpen, 'visualViewport kbH=' + Math.round(kbHeight));
+      }
+    });
+  }
+
+  // --- Initial badge render ---
+  updateBadges();
+  log('state', 'Debug harness initialized');
+
+})();
+</script>
+</body>
+</html>

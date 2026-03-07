@@ -940,27 +940,14 @@
         _velocity = 0;
         stopMomentum();
         cancelLongPress();
+        // Safety: restore pointerEvents in case previous selection left it stuck
+        const screen = container.querySelector('.xterm-screen');
+        if (screen) screen.style.pointerEvents = '';
 
-        // Start long-press timer — only on terminal area, not on quick-bar/topbar
-        const target = e.target;
-        const isTerminalArea = container.contains(target);
-        if (isTerminalArea && !quickBar.contains(target) && !topbar.contains(target)) {
-          const lpX = e.touches[0].clientX;
-          const lpY = e.touches[0].clientY;
-          _longPressTimer = setTimeout(() => {
-            _isSelecting = true;
-            _selStart = touchToCell(lpX, lpY);
-            // Haptic feedback if available
-            if (navigator.vibrate) navigator.vibrate(30);
-            // Block xterm.js internal pointer/mouse handlers during selection
-            const screen = container.querySelector('.xterm-screen');
-            if (screen) screen.style.pointerEvents = 'none';
-            // Select initial character
-            if (_selStart && term) {
-              term.select(_selStart.col, _selStart.row, 1);
-            }
-          }, LONG_PRESS_MS);
-        }
+        // Long-press selection DISABLED — testing input stability first
+        // const target = e.target;
+        // const isTerminalArea = container.contains(target);
+        // ... (long-press timer setup removed temporarily)
       }, { passive: true, capture: true, signal: touchSignal });
 
       document.addEventListener('touchmove', (e) => {
