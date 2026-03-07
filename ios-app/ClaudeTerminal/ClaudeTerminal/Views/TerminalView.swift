@@ -41,12 +41,17 @@ struct TerminalView: View {
     @State private var availableSessions: [TmuxSession] = []
     @State private var hasExternalKeyboard = false
     @State private var isLandscape = false
+    @StateObject private var uploadManager: FileUploadManager
+    @State private var showUploadSourcePicker = false
+    @State private var showPhotoPicker = false
+    @State private var showDocumentPicker = false
 
     init(sessionName: String, serverConfig: ServerConfig) {
         self._sessionName = State(initialValue: sessionName)
         self.serverConfig = serverConfig
         _wsManager = StateObject(wrappedValue: WebSocketManager(config: serverConfig))
         _voiceManager = StateObject(wrappedValue: VoiceManager(config: serverConfig))
+        _uploadManager = StateObject(wrappedValue: FileUploadManager(config: serverConfig))
     }
 
     var body: some View {
@@ -63,6 +68,7 @@ struct TerminalView: View {
                         networkMonitor: networkMonitor,
                         serverConfig: serverConfig,
                         inScrollMode: inScrollMode,
+                        uploadManager: uploadManager,
                         onDismiss: {
                             wsManager.disconnect()
                             dismiss()
@@ -76,6 +82,9 @@ struct TerminalView: View {
                         onShowClipboard: { content in
                             macClipboardContent = content
                             showClipboardMenu = true
+                        },
+                        onShowUploadPicker: {
+                            showUploadSourcePicker = true
                         }
                     )
                     .padding(.top, geometry.safeAreaInsets.top)
@@ -204,6 +213,28 @@ struct TerminalView: View {
                 }
             )
             .presentationDetents([.medium])
+        }
+        // v5: Upload source picker
+        .confirmationDialog("Upload File", isPresented: $showUploadSourcePicker) {
+            Button("Photo Library") {
+                showPhotoPicker = true
+            }
+            Button("Files") {
+                showDocumentPicker = true
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Choose file source")
+        }
+        .sheet(isPresented: $showPhotoPicker) {
+            PhotoPicker { image, filename in
+                uploadManager.uploadImage(image, filename: filename)
+            }
+        }
+        .sheet(isPresented: $showDocumentPicker) {
+            DocumentPicker { url, filename in
+                uploadManager.uploadFile(url: url, filename: filename)
+            }
         }
         // v5: Swipe down from top edge to show toolbar in landscape
         .gesture(

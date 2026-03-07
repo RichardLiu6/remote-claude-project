@@ -9,10 +9,12 @@ struct TerminalToolbar: View {
     let networkMonitor: NetworkMonitor
     let serverConfig: ServerConfig
     let inScrollMode: Bool
+    @ObservedObject var uploadManager: FileUploadManager
 
     var onDismiss: () -> Void
     var onShowSessionSwitcher: () -> Void
     var onShowClipboard: (String?) -> Void
+    var onShowUploadPicker: () -> Void
 
     var body: some View {
         HStack(spacing: 8) {
@@ -80,6 +82,24 @@ struct TerminalToolbar: View {
 
             Spacer()
 
+            // v5: File upload button with progress indicator
+            Button {
+                onShowUploadPicker()
+            } label: {
+                ZStack {
+                    Image(systemName: uploadIcon)
+                        .font(.system(size: 16))
+                        .foregroundColor(uploadIconColor)
+                    if case .uploading(let progress) = uploadManager.uploadState {
+                        Circle()
+                            .trim(from: 0, to: progress)
+                            .stroke(Color.purple, lineWidth: 2)
+                            .frame(width: 22, height: 22)
+                            .rotationEffect(.degrees(-90))
+                    }
+                }
+            }
+
             // Clipboard bridge button
             Button {
                 Task {
@@ -111,6 +131,26 @@ struct TerminalToolbar: View {
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
         .background(Color(red: 0.1, green: 0.1, blue: 0.15))
+    }
+
+    // MARK: - Upload status visuals
+
+    private var uploadIcon: String {
+        switch uploadManager.uploadState {
+        case .idle: return "square.and.arrow.up"
+        case .uploading: return "arrow.up.circle"
+        case .success: return "checkmark.circle.fill"
+        case .error: return "exclamationmark.circle.fill"
+        }
+    }
+
+    private var uploadIconColor: SwiftUI.Color {
+        switch uploadManager.uploadState {
+        case .idle: return .gray
+        case .uploading: return .purple
+        case .success: return .green
+        case .error: return .red
+        }
     }
 
     // MARK: - Connection status visuals

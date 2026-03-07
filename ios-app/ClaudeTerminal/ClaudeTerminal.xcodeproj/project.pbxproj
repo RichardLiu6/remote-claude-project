@@ -24,6 +24,7 @@
 		A1000015 /* NetworkMonitor.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000015; };
 		A1000016 /* TerminalToolbar.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000016; };
 		A1000017 /* SessionSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
+		A1000018 /* FileUploadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -43,6 +44,7 @@
 		A2000015 /* NetworkMonitor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NetworkMonitor.swift; sourceTree = "<group>"; };
 		A2000016 /* TerminalToolbar.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TerminalToolbar.swift; sourceTree = "<group>"; };
 		A2000017 /* SessionSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSwitcher.swift; sourceTree = "<group>"; };
+		A2000018 /* FileUploadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadManager.swift; sourceTree = "<group>"; };
 		A3000001 /* ClaudeTerminal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeTerminal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -100,6 +102,7 @@
 				A2000013 /* NotificationManager.swift */,
 				A2000014 /* ClipboardBridge.swift */,
 				A2000015 /* NetworkMonitor.swift */,
+				A2000018 /* FileUploadManager.swift */,
 			);
 			path = Network;
 			sourceTree = "<group>";
@@ -236,6 +239,7 @@
 				A1000015 /* NetworkMonitor.swift in Sources */,
 				A1000016 /* TerminalToolbar.swift in Sources */,
 				A1000017 /* SessionSwitcher.swift in Sources */,
+				A1000018 /* FileUploadManager.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
