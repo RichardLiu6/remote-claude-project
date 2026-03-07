@@ -237,7 +237,7 @@ private struct SettingsSheet: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("2.0")
+                        Text("3.0")
                             .foregroundColor(.secondary)
                     }
                 }
