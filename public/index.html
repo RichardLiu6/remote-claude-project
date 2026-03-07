@@ -1288,8 +1288,12 @@
       }
       if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
         e.preventDefault();
+        if (this.state === 'BUFFERING') {
+          clearTimeout(this.bufferTimer); this.bufferTimer = null; this._flush();
+        }
+        this.send('\r');
         this.resetSnapshot();
-        _dbg('ACTION', '<b style="color:#f80">BLOCKED soft Enter (use NL button)</b>');
+        _dbg('ACTION', '<b style="color:#0f0">SOFT ENTER \\r (non-composing)</b>');
         return;
       }
       // deleteContentBackward: let browser handle, diff picks it up
@@ -1311,6 +1315,22 @@
       if (_isUnidentified || _isWhitespaceKey) {
         if (_isWhitespaceKey) this._emptyKeyTs = Date.now();
         return;
+      }
+
+      // Physical keyboard Ctrl+key: send control character directly
+      if (e.ctrlKey && e.key.length === 1 && !e.metaKey && !e.altKey) {
+        const code = e.key.toLowerCase().charCodeAt(0);
+        if (code >= 97 && code <= 122) { // a-z
+          e.preventDefault();
+          if (this.state === 'BUFFERING') {
+            clearTimeout(this.bufferTimer); this.bufferTimer = null; this._flush();
+          }
+          const ctrlChar = String.fromCharCode(code - 96);
+          this.send(ctrlChar);
+          this._keydownHandled = true;
+          _dbg('ACTION', `<b style="color:#f00">KD SEND Ctrl+${e.key.toUpperCase()}</b>`);
+          return;
+        }
       }
 
       if (KEY_MAP[e.key]) {

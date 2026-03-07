@@ -69,10 +69,18 @@ class InputControllerSim {
 
   compositionEnd() { this._startBuffer(); }
 
-  // Soft keyboard Enter: ALWAYS blocked (v1 spec)
+  // Soft keyboard Enter: sends \r when NOT composing (v2 spec)
   softEnter() {
+    if (this.state === 'COMPOSING') {
+      this.resetSnapshot();
+      return false;  // blocked during IME
+    }
+    if (this.state === 'BUFFERING') {
+      clearTimeout(this.bufferTimer); this.bufferTimer = null; this._flush();
+    }
+    this.send('\r');
     this.resetSnapshot();
-    return false;
+    return true;  // Enter sent
   }
 
   onInput() {
@@ -84,6 +92,18 @@ class InputControllerSim {
   typeChar(ch) { this.textareaValue += ch; this.onInput(); }
 
   autocompleteReplace(newValue) { this.textareaValue = newValue; this.onInput(); }
+
+  sendCtrlKey(letter) {
+    if (this.state === 'COMPOSING') return;
+    if (this.state === 'BUFFERING') {
+      clearTimeout(this.bufferTimer); this.bufferTimer = null; this._flush();
+    }
+    const code = letter.toLowerCase().charCodeAt(0);
+    if (code >= 97 && code <= 122) {
+      this.send(String.fromCharCode(code - 96));
+      this._keydownHandled = true;
+    }
+  }
 
   sendSpecialKey(key, seq) {
     if (this.state === 'COMPOSING') return;
@@ -187,23 +207,23 @@ async function runTests() {
     assertArrayEqual(c.sent, ['helo', '\x7f', 'lo '], '1 BS + "lo "');
   }
 
-  console.log('\n=== 5. Soft keyboard Enter ALWAYS blocked ===');
+  console.log('\n=== 5. Soft keyboard Enter sends \\r (v2) ===');
   {
     const c = new InputControllerSim();
     c.typeChar('l'); c.typeChar('s');
     const r = c.softEnter();
-    assert(r === false, 'softEnter returns false');
-    assertArrayEqual(c.sent, [], 'Nothing sent');
+    assert(r === true, 'softEnter returns true (non-composing)');
+    assertArrayEqual(c.sent, ['ls', '\r'], 'Buffer flushed + Enter sent');
     assert(c.snapshot === '', 'Snapshot reset');
   }
 
-  console.log('\n=== 6. Soft Enter blocked during composition too ===');
+  console.log('\n=== 6. Soft Enter blocked ONLY during composition (v2) ===');
   {
     const c = new InputControllerSim();
     c.compositionStart();
     const r = c.softEnter();
     assert(r === false, 'Blocked during composition');
-    assertArrayEqual(c.sent, [], 'Nothing sent');
+    assertArrayEqual(c.sent, [], 'Nothing sent during composition');
   }
 
   console.log('\n=== 7. Tab resets snapshot ===');
@@ -323,6 +343,59 @@ async function runTests() {
     assertArrayEqual(c.sent, ['\u4F60'], 'Text sent');
   }
 
+
+  console.log('\n=== 18. Ctrl+C sends \\x03 ===');
+  {
+    const c = new InputControllerSim();
+    c.sendCtrlKey('c');
+    assertArrayEqual(c.sent, ['\x03'], 'Ctrl+C = \\x03');
+  }
+
+  console.log('\n=== 19. Ctrl+D sends \\x04 ===');
+  {
+    const c = new InputControllerSim();
+    c.sendCtrlKey('d');
+    assertArrayEqual(c.sent, ['\x04'], 'Ctrl+D = \\x04');
+  }
+
+  console.log('\n=== 20. Ctrl+Z sends \\x1a ===');
+  {
+    const c = new InputControllerSim();
+    c.sendCtrlKey('z');
+    assertArrayEqual(c.sent, ['\x1a'], 'Ctrl+Z = \\x1a');
+  }
+
+  console.log('\n=== 21. Ctrl+A/E/L/R sends correct codes ===');
+  {
+    const c = new InputControllerSim();
+    c.sendCtrlKey('a'); c.sendCtrlKey('e'); c.sendCtrlKey('l'); c.sendCtrlKey('r');
+    assertArrayEqual(c.sent, ['\x01', '\x05', '\x0c', '\x12'], '^A ^E ^L ^R');
+  }
+
+  console.log('\n=== 22. Ctrl+key flushes buffer first ===');
+  {
+    const c = new InputControllerSim();
+    c.typeChar('g'); c.typeChar('i');
+    c.sendCtrlKey('c');
+    assertArrayEqual(c.sent, ['gi', '\x03'], 'Buffer flushed before Ctrl+C');
+  }
+
+  console.log('\n=== 23. Ctrl+key blocked during composition ===');
+  {
+    const c = new InputControllerSim();
+    c.compositionStart();
+    c.sendCtrlKey('c');
+    assertArrayEqual(c.sent, [], 'Ctrl+C blocked during IME');
+  }
+
+  console.log('\n=== 24. Soft Enter after typing flushes buffer ===');
+  {
+    const c = new InputControllerSim();
+    c.typeChar('p'); c.typeChar('w'); c.typeChar('d');
+    const r = c.softEnter();
+    assert(r === true, 'Enter sent');
+    assertArrayEqual(c.sent, ['pwd', '\r'], 'pwd flushed + Enter');
+  }
   console.log('\n' + '='.repeat(50));
   console.log(`Results: ${passed} passed, ${failed} failed`);
   if (failed > 0) process.exit(1);
