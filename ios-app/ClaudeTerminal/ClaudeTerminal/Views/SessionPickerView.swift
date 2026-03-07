@@ -2,6 +2,9 @@ import SwiftUI
 
 /// Session picker — the app's landing screen.
 /// Fetches tmux sessions from GET /api/sessions and lets the user tap to connect.
+///
+/// v4: On launch, if a cached "last session" exists and is still active,
+/// auto-connects to it for instant startup. User can still manually pick.
 struct SessionPickerView: View {
     @State private var sessions: [TmuxSession] = []
     @State private var isLoading = false
@@ -9,6 +12,7 @@ struct SessionPickerView: View {
     @State private var selectedSession: TmuxSession?
     @State private var showSettings = false
     @State private var serverConfig = ServerConfig.load()
+    @State private var hasAttemptedAutoConnect = false
 
     var body: some View {
         NavigationStack {
@@ -124,13 +128,31 @@ struct SessionPickerView: View {
                 await MainActor.run {
                     sessions = fetched
                     isLoading = false
+
+                    // v4: Auto-connect to last session on first load
+                    if !hasAttemptedAutoConnect {
+                        hasAttemptedAutoConnect = true
+                        autoConnectIfPossible()
+                    }
                 }
             } catch {
                 await MainActor.run {
                     errorMessage = "Cannot reach server\n\(serverConfig.host):\(serverConfig.port)\n\n\(error.localizedDescription)"
                     isLoading = false
+                    hasAttemptedAutoConnect = true
                 }
             }
+        }
+    }
+
+    /// v4: If the last-used session is still active, auto-connect to it.
+    private func autoConnectIfPossible() {
+        guard let lastSessionName = UserDefaults.standard.string(forKey: "last_session_name"),
+              !lastSessionName.isEmpty else { return }
+
+        // Check if the last session still exists in the fetched list
+        if let session = sessions.first(where: { $0.name == lastSessionName }) {
+            selectedSession = session
         }
     }
 }
@@ -237,7 +259,7 @@ private struct SettingsSheet: View {
                     HStack {
                         Text("Version")
                         Spacer()
-                        Text("3.0")
+                        Text("4.0")
                             .foregroundColor(.secondary)
                     }
                 }
