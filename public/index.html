@@ -756,28 +756,38 @@
     });
 
     // Mobile: touch scroll + tap-to-focus.
-    // Must use capture phase on .xterm-screen because xterm.js may stopPropagation
-    // on touch events, preventing them from reaching #terminal-container.
     if (isMobile) {
       let _touchStartY = 0;
       let _touchMoved = false;
       const xtermScreen = container.querySelector('.xterm-screen');
       const touchTarget = xtermScreen || container;
 
-      touchTarget.addEventListener('touchstart', (e) => {
+      // DEBUG: visible indicator — remove after diagnosis
+      const _dbg = document.createElement('div');
+      _dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;background:rgba(255,0,0,0.85);color:#fff;font:bold 14px monospace;padding:6px 10px;z-index:99999;pointer-events:none;';
+      _dbg.textContent = 'target=' + (xtermScreen ? '.xterm-screen' : 'container') + ' | moves=0 | scrollPos=' + (term.buffer.active.viewportY);
+      document.body.appendChild(_dbg);
+      let _moveCount = 0;
+
+      // Register on DOCUMENT capture to bypass any element-level blocking
+      document.addEventListener('touchstart', (e) => {
         _touchStartY = e.touches[0].clientY;
         _touchMoved = false;
       }, { passive: true, capture: true });
-      touchTarget.addEventListener('touchmove', (e) => {
+      document.addEventListener('touchmove', (e) => {
         const deltaY = _touchStartY - e.touches[0].clientY;
         if (Math.abs(deltaY) > 5) {
           _touchMoved = true;
-          term.scrollLines(Math.round(deltaY / 20));
+          const lines = Math.round(deltaY / 20);
+          term.scrollLines(lines);
           _touchStartY = e.touches[0].clientY;
+          _moveCount++;
+          _dbg.textContent = 'moves=' + _moveCount + ' | delta=' + deltaY.toFixed(0) + ' | lines=' + lines + ' | viewportY=' + term.buffer.active.viewportY + '/' + term.buffer.active.length;
         }
       }, { passive: true, capture: true });
       // Only focus (open keyboard) on tap, not after scroll
-      touchTarget.addEventListener('touchend', () => {
+      document.addEventListener('touchend', () => {
+        // Check if touch was inside terminal area
         if (!_touchMoved && !selectMode) overlayInput.focus();
       }, { capture: true });
     }
