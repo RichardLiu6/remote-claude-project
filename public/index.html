@@ -90,16 +90,22 @@
       /* Ensure xterm fills the container */
       position: relative;
       padding: 0 8px;
+      touch-action: pan-y;  /* Allow vertical swipe to reach xterm-viewport */
     }
     @media (max-width: 768px) {
       #terminal-container { padding: 0 2px; }
     }
     #terminal-container .xterm {
       height: 100%;
+      touch-action: pan-y !important;  /* Override xterm.js internal touch-action: none */
+    }
+    #terminal-container .xterm-screen {
+      touch-action: pan-y !important;  /* Same override on screen layer */
     }
     #terminal-container .xterm-viewport {
-      /* Improve scroll inertia on iOS */
       -webkit-overflow-scrolling: touch;
+      touch-action: pan-y;          /* Allow vertical touch scroll */
+      overscroll-behavior: contain;  /* Prevent scroll bleed to body */
     }
 
     /* Hidden textarea for mobile keyboard capture.
@@ -794,11 +800,31 @@
       }
     });
 
-    // Mobile: tap terminal area → focus overlay → keyboard opens (unless in select mode)
+    // Mobile: touch scroll + tap-to-focus.
+    // Must use capture phase on .xterm-screen because xterm.js may stopPropagation
+    // on touch events, preventing them from reaching #terminal-container.
     if (isMobile) {
-      container.addEventListener('click', () => {
-        if (!selectMode) overlayInput.focus();
-      });
+      let _touchStartY = 0;
+      let _touchMoved = false;
+      const xtermScreen = container.querySelector('.xterm-screen');
+      const touchTarget = xtermScreen || container;
+
+      touchTarget.addEventListener('touchstart', (e) => {
+        _touchStartY = e.touches[0].clientY;
+        _touchMoved = false;
+      }, { passive: true, capture: true });
+      touchTarget.addEventListener('touchmove', (e) => {
+        const deltaY = _touchStartY - e.touches[0].clientY;
+        if (Math.abs(deltaY) > 5) {
+          _touchMoved = true;
+          term.scrollLines(Math.round(deltaY / 20));
+          _touchStartY = e.touches[0].clientY;
+        }
+      }, { passive: true, capture: true });
+      // Only focus (open keyboard) on tap, not after scroll
+      touchTarget.addEventListener('touchend', () => {
+        if (!_touchMoved && !selectMode) overlayInput.focus();
+      }, { capture: true });
     }
 
     // WebSocket connection
