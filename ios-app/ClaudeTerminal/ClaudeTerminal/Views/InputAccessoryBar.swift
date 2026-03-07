@@ -1,17 +1,28 @@
 import SwiftUI
 
 /// Quick-action keys displayed above the keyboard.
-/// Matches the Web terminal's quick-bar: Tab, ^C, Esc, Up, Down.
+/// v4: Full quick-bar matching Web terminal — NL first (user's #1 request),
+/// plus left/right arrows, ^A/^E/^R for line editing.
 struct InputAccessoryBar: View {
     /// Callback when a key action is triggered.
     var onKey: (KeyAction) -> Void
 
+    /// Whether to hide the bar (e.g. when external keyboard is connected).
+    var isHidden: Bool = false
+
     enum KeyAction {
+        case newline      // NL — send Enter (\r), the #1 most-used key
         case tab
+        case shiftTab     // Shift-Tab for reverse completion
         case ctrlC
         case escape
+        case arrowLeft
+        case arrowRight
         case arrowUp
         case arrowDown
+        case ctrlA        // Beginning of line
+        case ctrlE        // End of line
+        case ctrlR        // Reverse search
         case ctrlD
         case ctrlZ
         case ctrlL
@@ -19,44 +30,77 @@ struct InputAccessoryBar: View {
         /// The ANSI escape sequence or character to send via WebSocket.
         var ansiSequence: String {
             switch self {
-            case .tab:      return "\t"
-            case .ctrlC:    return "\u{03}"
-            case .escape:   return "\u{1B}"
-            case .arrowUp:  return "\u{1B}[A"
+            case .newline:   return "\r"
+            case .tab:       return "\t"
+            case .shiftTab:  return "\u{1B}[Z"
+            case .ctrlC:     return "\u{03}"
+            case .escape:    return "\u{1B}"
+            case .arrowLeft: return "\u{1B}[D"
+            case .arrowRight: return "\u{1B}[C"
+            case .arrowUp:   return "\u{1B}[A"
             case .arrowDown: return "\u{1B}[B"
-            case .ctrlD:    return "\u{04}"
-            case .ctrlZ:    return "\u{1A}"
-            case .ctrlL:    return "\u{0C}"
+            case .ctrlA:     return "\u{01}"
+            case .ctrlE:     return "\u{05}"
+            case .ctrlR:     return "\u{12}"
+            case .ctrlD:     return "\u{04}"
+            case .ctrlZ:     return "\u{1A}"
+            case .ctrlL:     return "\u{0C}"
             }
         }
     }
 
     var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 6) {
-                keyButton("Tab", icon: "arrow.right.to.line", action: .tab)
-                keyButton("^C", icon: nil, action: .ctrlC)
-                keyButton("Esc", icon: nil, action: .escape)
+        if !isHidden {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 6) {
+                    // NL (newline/Enter) — first position, highlighted
+                    nlButton
 
-                Divider()
-                    .frame(height: 24)
-                    .background(Color.gray.opacity(0.3))
+                    keyButton("Tab", icon: "arrow.right.to.line", action: .tab)
+                    keyButton("^C", icon: nil, action: .ctrlC)
+                    keyButton("Esc", icon: nil, action: .escape)
 
-                keyButton(nil, icon: "arrow.up", action: .arrowUp)
-                keyButton(nil, icon: "arrow.down", action: .arrowDown)
+                    Divider()
+                        .frame(height: 24)
+                        .background(Color.gray.opacity(0.3))
 
-                Divider()
-                    .frame(height: 24)
-                    .background(Color.gray.opacity(0.3))
+                    keyButton(nil, icon: "arrow.left", action: .arrowLeft)
+                    keyButton(nil, icon: "arrow.right", action: .arrowRight)
+                    keyButton(nil, icon: "arrow.up", action: .arrowUp)
+                    keyButton(nil, icon: "arrow.down", action: .arrowDown)
 
-                keyButton("^D", icon: nil, action: .ctrlD)
-                keyButton("^Z", icon: nil, action: .ctrlZ)
-                keyButton("^L", icon: nil, action: .ctrlL)
+                    Divider()
+                        .frame(height: 24)
+                        .background(Color.gray.opacity(0.3))
+
+                    keyButton("^A", icon: nil, action: .ctrlA)
+                    keyButton("^E", icon: nil, action: .ctrlE)
+                    keyButton("^R", icon: nil, action: .ctrlR)
+                    keyButton("^D", icon: nil, action: .ctrlD)
+                    keyButton("^Z", icon: nil, action: .ctrlZ)
+                    keyButton("^L", icon: nil, action: .ctrlL)
+                }
+                .padding(.horizontal, 8)
             }
-            .padding(.horizontal, 8)
+            .frame(height: 44)
+            .background(Color(red: 0.15, green: 0.15, blue: 0.2))
         }
-        .frame(height: 44)
-        .background(Color(red: 0.15, green: 0.15, blue: 0.2))
+    }
+
+    /// NL button — visually distinct (green tint) since it's the most-used key.
+    private var nlButton: some View {
+        Button {
+            onKey(.newline)
+        } label: {
+            Text("NL")
+                .font(.system(size: 14, weight: .bold, design: .monospaced))
+                .foregroundColor(.white)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 6)
+                .background(Color(red: 0.2, green: 0.45, blue: 0.3))
+                .cornerRadius(6)
+        }
+        .buttonStyle(.plain)
     }
 
     @ViewBuilder
