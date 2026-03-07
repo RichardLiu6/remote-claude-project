@@ -517,6 +517,27 @@
     if (isMobile) overlayInput.focus();
   }
 
+  // --- Clipboard helper (HTTP fallback) ---
+  function copyToClipboard(text) {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(() => {
+        showCopiedToast();
+      }).catch(() => { fallbackCopy(text); });
+    } else {
+      fallbackCopy(text);
+    }
+  }
+  function fallbackCopy(text) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    ta.style.cssText = 'position:fixed;opacity:0;left:-9999px';
+    document.body.appendChild(ta);
+    ta.focus();
+    ta.select();
+    try { document.execCommand('copy'); showCopiedToast(); } catch {}
+    document.body.removeChild(ta);
+  }
+
   // --- Copied toast notification ---
   function showCopiedToast() {
     let toast = container.querySelector('.copied-toast');
@@ -802,7 +823,7 @@
     term.onSelectionChange(() => {
       const sel = term.getSelection();
       if (sel) {
-        navigator.clipboard.writeText(sel).catch(() => {});
+        copyToClipboard(sel);
       }
     });
 
@@ -997,8 +1018,7 @@
           if (screen) screen.style.pointerEvents = '';
           const sel = term ? term.getSelection() : '';
           if (sel) {
-            navigator.clipboard.writeText(sel).catch(() => {});
-            showCopiedToast();
+            copyToClipboard(sel);
             // Clear selection after a brief delay so user sees what was copied
             setTimeout(() => { if (term) term.clearSelection(); }, 1000);
           }
