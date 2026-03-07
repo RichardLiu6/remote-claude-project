@@ -43,7 +43,8 @@ Related: 语音重构 (#17/#18), [voice refactor design](plans/2026-03-07-voice-
 1. 从 stdin JSON 读 session_id
 2. 检查 notify-local-{id} → 执行现有 terminal-notifier + afplay
 3. 检查 notify-web-{id} → POST 到 server.js 新端点 /notify-event
-4. 都没有 → 默认 local（通知不应该完全静默，和语音不同）
+4. 都没有 → 默认 local（向后兼容）
+5. notify-off-{id} 存在 → 静默退出（/notify off 创建此文件）
 ```
 
 ### server.js 新增
@@ -61,22 +62,18 @@ POST /notify-event
   4. 可选：播放提示音（复用 voicePlayer）
 ```
 
-## 与语音系统的区别
+## 与语音系统的关系
 
-| 维度 | 语音 | 通知 |
-|------|------|------|
-| 默认行为 | 默认关闭 | 默认开启（local） |
-| 无 flag 时 | 静默退出 | 仍然执行 local 通知 |
-| 内容 | TTS 音频 | 短文本 + 提示音 |
-| 频率 | 每次 Stop | 仅 Notification 事件 |
+完全复用语音重构的模式：CC session_id 标识、flag 文件双通道、skill 开关。一个 session 通常只在一个平台使用，不需要同时开。
+
+与语音唯一区别：**默认开启 local**。无 flag 文件时 notify.sh 仍执行 terminal-notifier + afplay（向后兼容，通知不应静默）。`/notify off` 可关闭。
 
 ## 需要考虑的问题
 
 1. **浏览器 Notification 权限**：首次需要用户点击授权，Web Terminal 可以在连接时提示
-2. **默认通道**：通知和语音不同，不能默认关闭。建议无 flag 时 = local（向后兼容）
-3. **是否合并语音和通知的开关**：可以做一个 `/mode` skill 统一管理，但增加复杂度。建议先独立，后续再考虑合并
-4. **push 通道**：Bark（iOS 推送 app）是最轻量的方案，一个 URL 调用即可。但这是 V2 功能
-5. **activate_cursor.sh**：Web 通道不需要激活 Cursor 窗口，local 通道保留
+2. **是否合并语音和通知的开关**：可以做一个 `/mode` skill 统一管理，但增加复杂度。建议先独立，后续再考虑合并
+3. **push 通道**：Bark（iOS 推送 app）是最轻量的方案，一个 URL 调用即可。但这是 V2 功能
+4. **activate_cursor.sh**：Web 通道不需要激活 Cursor 窗口，local 通道保留
 
 ## 实现步骤
 
