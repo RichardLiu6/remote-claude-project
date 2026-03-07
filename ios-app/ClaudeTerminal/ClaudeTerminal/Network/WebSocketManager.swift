@@ -421,7 +421,9 @@ final class WebSocketManager: ObservableObject {
 extension WebSocketManager {
     /// Fetch tmux sessions from the REST API.
     static func fetchSessions(config: ServerConfig = .load()) async throws -> [TmuxSession] {
-        let url = URL(string: "\(config.baseURL)/api/sessions")!
+        guard let url = URL(string: "\(config.baseURL)/api/sessions") else {
+            throw URLError(.badURL)
+        }
         let (data, response) = try await URLSession.shared.data(from: url)
 
         guard let httpResponse = response as? HTTPURLResponse,
