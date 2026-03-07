@@ -683,14 +683,14 @@
       quickBar.style.bottom = kbHeight + 'px';
       const qbH = quickBar.offsetHeight || 44;
 
-      // Show input bar above quick-bar (below terminal), hide if in scroll mode
-      if (isMobile && !_inScrollMode) {
+      // Show input bar above quick-bar when keyboard is open (always, regardless of scroll mode)
+      if (isMobile) {
         overlayInput.classList.add('input-visible');
         overlayInput.style.bottom = (kbHeight + qbH) + 'px';
       } else {
         overlayInput.classList.remove('input-visible');
       }
-      const inputH = (!_inScrollMode && isMobile) ? 36 : 0;
+      const inputH = isMobile ? 36 : 0;
 
       const topbarH = document.getElementById('topbar').offsetHeight || 48;
       const statusH = document.getElementById('status').offsetHeight || 20;
@@ -708,8 +708,21 @@
       const statusH = document.getElementById('status').offsetHeight || 20;
       container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
       container.style.flex = 'none';
+    } else if (_inScrollMode && isMobile) {
+      // Keyboard closed BUT in scroll mode — show input bar + quick-bar at bottom
+      _keyboardOpen = false;
+      quickBar.style.display = 'flex';
+      quickBar.style.bottom = '0';
+      const qbH = quickBar.offsetHeight || 44;
+      overlayInput.classList.add('input-visible');
+      overlayInput.style.bottom = qbH + 'px';
+      const inputH = 36;
+      const topbarH = document.getElementById('topbar').offsetHeight || 48;
+      const statusH = document.getElementById('status').offsetHeight || 20;
+      container.style.height = (vvh - topbarH - statusH - qbH - inputH) + 'px';
+      container.style.flex = 'none';
     } else {
-      // Keyboard is closed — restore flex layout, hide input bar
+      // Keyboard is closed, not in scroll mode — restore flex layout, hide input bar
       _keyboardOpen = false;
       quickBar.style.display = 'none';
       overlayInput.classList.remove('input-visible');
@@ -879,7 +892,7 @@
         wsSend('\x01scroll:' + dir + ':' + n);
         if (!_inScrollMode) {
           _inScrollMode = true;
-          adjustQuickBarPosition();  // Hide input bar when entering scroll mode
+          adjustQuickBarPosition();  // Show input bar + quick-bar when entering scroll mode
         }
         _pendingScroll = 0;
       };
