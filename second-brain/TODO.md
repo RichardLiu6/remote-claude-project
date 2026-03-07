@@ -1,5 +1,11 @@
 # TODO
 
+## #19 [03-07] 通知 hook 多环境适配 — ⬜
+- 现状：notify.sh 固定用 terminal-notifier + afplay（Cursor 桌面通知）
+- 问题：手机远端使用 CC 时，通知仍然弹在 Mac 桌面，手机收不到
+- 需要：类似语音重构的思路，根据环境路由通知到不同通道
+- [详细方案](../docs/notification-refactor-design.md)
+
 ## #18 [03-07] 语音系统重构后验证 — ✅
 - /voice skill 真机测试（local / web / both / off）— 通过
 - 手机 Web Terminal 确认 WS 语音播放正常（speaker 按钮已移除）
