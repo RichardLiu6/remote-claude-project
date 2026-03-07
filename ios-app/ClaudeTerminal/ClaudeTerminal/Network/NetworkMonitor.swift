@@ -62,15 +62,18 @@ final class NetworkMonitor: ObservableObject {
                 if nowConnected && !self.wasConnected {
                     // Network restored — trigger reconnect
                     print("[network] restored (\(type.rawValue))")
+                    DebugLogStore.shared.log("Network restored (\(type.rawValue))", category: .network)
                     self.onNetworkRestored?()
                 } else if !nowConnected && self.wasConnected {
                     // Network lost
                     print("[network] lost")
+                    DebugLogStore.shared.log("Network lost", category: .network)
                     self.onNetworkLost?()
                 } else if nowConnected && self.wasConnected && type != .unknown {
                     // Network type changed (e.g. WiFi -> Cellular)
                     // The underlying socket may be broken — trigger reconnect
                     print("[network] path changed to \(type.rawValue)")
+                    DebugLogStore.shared.log("Path changed to \(type.rawValue)", category: .network)
                     self.onNetworkRestored?()
                 }
 

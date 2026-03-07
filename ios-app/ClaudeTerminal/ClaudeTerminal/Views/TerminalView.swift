@@ -45,6 +45,8 @@ struct TerminalView: View {
     @State private var showUploadSourcePicker = false
     @State private var showPhotoPicker = false
     @State private var showDocumentPicker = false
+    @State private var showDebugPanel = false
+    @ObservedObject private var debugLogStore = DebugLogStore.shared
 
     init(sessionName: String, serverConfig: ServerConfig) {
         self._sessionName = State(initialValue: sessionName)
@@ -235,6 +237,14 @@ struct TerminalView: View {
             DocumentPicker { url, filename in
                 uploadManager.uploadFile(url: url, filename: filename)
             }
+        }
+        // v5: Debug log panel (shake to open)
+        .sheet(isPresented: $showDebugPanel) {
+            DebugLogPanel(logStore: debugLogStore, isPresented: $showDebugPanel)
+                .presentationDetents([.medium, .large])
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in
+            showDebugPanel = true
         }
         // v5: Swipe down from top edge to show toolbar in landscape
         .gesture(

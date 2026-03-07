@@ -213,6 +213,7 @@ final class WebSocketManager: ObservableObject {
         hasReceivedFirstMessage = false
 
         print("[ws] connecting to \(urlString)")
+        DebugLogStore.shared.log("Connecting to \(urlString)", category: .ws)
         receiveMessage()
         startPing()
     }
@@ -248,6 +249,7 @@ final class WebSocketManager: ObservableObject {
                 if !self.hasReceivedFirstMessage {
                     self.hasReceivedFirstMessage = true
                     self.updateConnectionState(.connected)
+                    DebugLogStore.shared.log("Connected (first message received)", category: .ws)
                 }
                 self.handleMessage(message)
                 // Continue listening
@@ -255,6 +257,7 @@ final class WebSocketManager: ObservableObject {
 
             case .failure(let error):
                 print("[ws] receive error: \(error.localizedDescription)")
+                DebugLogStore.shared.log("Receive error: \(error.localizedDescription)", category: .error)
                 self.handleDisconnect(error: error)
             }
         }
@@ -384,6 +387,7 @@ final class WebSocketManager: ObservableObject {
             + Double.random(in: 0...1)
 
         print("[ws] reconnecting in \(String(format: "%.1f", delay))s (attempt \(reconnectAttempts)/\(maxReconnectAttempts))")
+        DebugLogStore.shared.log("Reconnecting in \(String(format: "%.1f", delay))s (\(reconnectAttempts)/\(maxReconnectAttempts))", category: .ws)
 
         let reason = error?.localizedDescription ?? "Unknown"
         DispatchQueue.main.async {
