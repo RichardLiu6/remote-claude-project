@@ -25,7 +25,7 @@ struct SessionPickerView: View {
                     HStack {
                         Image(systemName: "server.rack")
                             .foregroundColor(.gray)
-                        Text("\(serverConfig.host):\(serverConfig.port)")
+                        Text(verbatim: "\(serverConfig.host):\(serverConfig.port)")
                             .font(.system(.footnote, design: .monospaced))
                             .foregroundColor(.gray)
                         Spacer()
@@ -114,6 +114,11 @@ struct SessionPickerView: View {
                 }
             }
             .onAppear {
+                serverConfig = ServerConfig.load()
+                loadSessions()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .serverConfigDidChange)) { _ in
+                serverConfig = ServerConfig.load()
                 loadSessions()
             }
         }

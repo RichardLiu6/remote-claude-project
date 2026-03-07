@@ -5,6 +5,7 @@ import UIKit
 
 extension Notification.Name {
     static let deviceDidShake = Notification.Name("deviceDidShake")
+    static let serverConfigDidChange = Notification.Name("serverConfigDidChange")
 }
 
 extension UIWindow {
@@ -24,7 +25,9 @@ struct ClaudeTerminalApp: App {
         WindowGroup {
             SessionPickerView()
                 .preferredColorScheme(.dark)
-                .fullScreenCover(isPresented: $showOnboarding) {
+                .fullScreenCover(isPresented: $showOnboarding, onDismiss: {
+                    NotificationCenter.default.post(name: .serverConfigDidChange, object: nil)
+                }) {
                     OnboardingView(isPresented: $showOnboarding)
                         .preferredColorScheme(.dark)
                 }

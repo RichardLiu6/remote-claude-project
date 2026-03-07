@@ -152,7 +152,7 @@ struct SwiftTermView: UIViewRepresentable {
 
         /// v6: Loop-shrink fontSize (step 1pt, min 8pt) until terminal fits >= 70 columns.
         private func adaptFontSize(terminalView: SwiftTerm.TerminalView, currentCols: Int) {
-            guard let currentFont = terminalView.font else { return }
+            let currentFont = terminalView.font
             var fontSize = currentFont.pointSize
 
             // Avoid infinite loops: only shrink, never grow here

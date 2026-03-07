@@ -395,6 +395,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"ClaudeTerminal/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeTerminal/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Claude Terminal";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
@@ -426,6 +427,7 @@
 				DEVELOPMENT_ASSET_PATHS = "\"ClaudeTerminal/Preview Content\"";
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ClaudeTerminal/Info.plist;
 				INFOPLIST_KEY_CFBundleDisplayName = "Claude Terminal";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;

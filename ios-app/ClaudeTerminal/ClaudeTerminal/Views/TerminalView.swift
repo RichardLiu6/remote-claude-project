@@ -28,6 +28,7 @@ struct TerminalView: View {
     @State private var showDocumentPicker = false
     @State private var showDebugPanel = false
     @State private var triggerSelect = false
+    @State private var keyboardHeight: CGFloat = 0
     @ObservedObject private var debugLogStore = DebugLogStore.shared
 
     init(sessionName: String, serverConfig: ServerConfig) {
@@ -59,7 +60,6 @@ struct TerminalView: View {
                     SwiftTermView(wsManager: wsManager, notificationManager: notificationManager,
                                   serverConfig: serverConfig, inScrollMode: $inScrollMode,
                                   triggerSelect: $triggerSelect)
-                        .ignoresSafeArea(.keyboard, edges: .bottom)
                     InputAccessoryBar(onKey: { action in
                         UIImpactFeedbackGenerator(style: .light).impactOccurred()
                         if action == .select {
@@ -68,7 +68,7 @@ struct TerminalView: View {
                             wsManager.sendInput(action.ansiSequence)
                         }
                     }, isHidden: hasExternalKeyboard, isCompact: landscape)
-                    .padding(.bottom, geo.safeAreaInsets.bottom)
+                    .padding(.bottom, keyboardHeight > 0 ? keyboardHeight : geo.safeAreaInsets.bottom)
                 }
                 .padding(.leading, geo.safeAreaInsets.leading)
                 .padding(.trailing, geo.safeAreaInsets.trailing)
@@ -76,6 +76,7 @@ struct TerminalView: View {
                 disconnectOverlay
             }
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
         .background(Color.black).edgesIgnoringSafeArea(.all)
         .onAppear { onViewAppear() }
         .onDisappear { onViewDisappear() }
@@ -93,7 +94,7 @@ struct TerminalView: View {
         .sheet(isPresented: $showDocumentPicker) { DocumentPicker { url, name in uploadManager.uploadFile(url: url, filename: name) } }
         .sheet(isPresented: $showDebugPanel) { DebugLogPanel(logStore: debugLogStore, isPresented: $showDebugPanel).presentationDetents([.medium, .large]) }
         .onReceive(NotificationCenter.default.publisher(for: .deviceDidShake)) { _ in showDebugPanel = true }
-        .gesture(landscapeSwipeGesture)
+        .overlay(alignment: .top) { landscapeSwipeOverlay }
         .statusBarHidden(true)
     }
 
@@ -126,7 +127,7 @@ struct TerminalView: View {
         }
     }
 
-    private var connectionDotColor: Color {
+    private var connectionDotColor: SwiftUI.Color {
         switch wsManager.connectionState {
         case .connected: return .green
         case .connecting, .reconnecting: return .yellow
@@ -173,18 +174,29 @@ struct TerminalView: View {
         Task { availableSessions = (try? await WebSocketManager.fetchSessions(config: serverConfig)) ?? []; showSessionSwitcher = true }
     }
 
-    // MARK: - External keyboard
+    // MARK: - Keyboard tracking
     private func setupExternalKeyboardDetection() {
         NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillShowNotification, object: nil, queue: .main) { n in
-            if let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect { hasExternalKeyboard = f.height < 100 }
+            if let f = n.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                hasExternalKeyboard = f.height < 100
+                withAnimation(.easeOut(duration: 0.25)) { keyboardHeight = f.height }
+            }
         }
-        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in hasExternalKeyboard = false }
+        NotificationCenter.default.addObserver(forName: UIResponder.keyboardWillHideNotification, object: nil, queue: .main) { _ in
+            hasExternalKeyboard = false
+            withAnimation(.easeOut(duration: 0.25)) { keyboardHeight = 0 }
+        }
     }
 
-    private var landscapeSwipeGesture: some Gesture? {
-        isLandscape ? DragGesture(minimumDistance: 30).onEnded { v in
-            if v.translation.height > 50 && v.startLocation.y < 44 { showSessionSwitcherAction() }
-        } : nil
+    @ViewBuilder private var landscapeSwipeOverlay: some View {
+        if isLandscape {
+            Color.clear
+                .contentShape(Rectangle())
+                .frame(height: 44)
+                .gesture(DragGesture(minimumDistance: 30).onEnded { v in
+                    if v.translation.height > 50 { showSessionSwitcherAction() }
+                })
+        }
     }
 
     // MARK: - Alert content

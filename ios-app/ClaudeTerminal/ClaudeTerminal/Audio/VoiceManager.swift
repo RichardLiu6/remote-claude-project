@@ -60,7 +60,7 @@ final class VoiceManager: NSObject, ObservableObject, AVAudioPlayerDelegate {
         guard let urlPath = payload["url"] as? String else { return }
 
         let text = payload["text"] as? String
-        DebugLogStore.shared.log("Voice event: \(text?.prefix(50) ?? urlPath)", category: .voice)
+        DebugLogStore.shared.log("Voice event: \(text.map { String($0.prefix(50)) } ?? urlPath)", category: .voice)
         DispatchQueue.main.async {
             self.lastSpokenText = text
         }
