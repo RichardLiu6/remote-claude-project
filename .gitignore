@@ -1,2 +1,4 @@
 node_modules/
 public/audio/
+.claude/worktrees/
+public/index.html.v1-backup

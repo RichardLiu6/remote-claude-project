@@ -25,7 +25,7 @@
 
 ## 移动端输入模型（03-07 v3 重写）
 - v3 架构：InputController 状态机（IDLE→COMPOSING→BUFFERING→FLUSHING）
-- 150ms 统一 debounce buffer 替代逐字符发送 + sentBuffer
+- 30ms 统一 debounce buffer 替代逐字符发送 + sentBuffer（v3 从 150ms 降至 30ms）
 - snapshot diff：compositionend 不再全量发送，只发增量
 - AbortController 管理事件监听器，session 切换时一次性清理
 - 评分趋势 6.7→6.8→7.7，核心改善：软 Enter 恢复、Tab 补全后同步、中文不重复
@@ -35,9 +35,16 @@
 ## Agent Team 迭代模式（03-07 建立）
 - 每版本 3 人团队：engineer（worktree 隔离）+ user（10 维评分）+ PM（RICE 分析）
 - 反馈链：v(N) user/PM 反馈注入 v(N+1) engineer prompt
-- iOS App 6 版本迭代：5.5→7.5→8.5→...
+- iOS App 6 版本迭代：5.5→7.5→8.5→8.8→9.2（PM 9.3），TestFlight 85-90%
 - Input 系统 3 版本迭代：6.7→6.8→7.7
 - 详见 skill `agent-team-iteration`
+
+## 已清理的 Worktree 分支（03-07 归档）
+- `worktree-agent-a5d6b55b`：iOS App v1-v2（MVP + scroll/voice/notify/clipboard），已合入 ios-native-app-phase1
+- `worktree-agent-a3d92b36`：多渠道 Agent 文档（WeChat/Lark/iMessage），已合入 master
+- `worktree-agent-ae7bedb4`：iOS App 早期 + Agent 文档，已合入 ios-native-app-phase1
+- `feature/ios-native-app-phase1`：滚动/通知等早期功能，已合入 master
+- 活跃分支仅保留：`master` + `ios-native-app-phase1`（iOS App v6）
 
 ## 多渠道消息 Agent（03-07 研究）
 - OpenClaw 三层架构：Channel Adapter → Gateway → Agent Runtime
