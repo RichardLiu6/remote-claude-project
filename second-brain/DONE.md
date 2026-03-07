@@ -1,5 +1,6 @@
 # DONE
 
+### #17 [03-06] 语音 hook 去掉全局 fallback — exit 0 替代 voice-mode 全局文件
 ### #15 [03-04] 移动端输入重构：diff 模型替代三层事件拦截
 ### #11 [03-04] iOS IME insertParagraph 换行删字
 ### #10 [03-03] 页面刷新后 session 选择器重置

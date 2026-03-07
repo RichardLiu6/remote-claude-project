@@ -2,7 +2,7 @@
 
 ## 语音系统架构
 - Flag 文件 per-session 控制生成，broadcastVoice() 全 WS 客户端广播
-- 非 tmux 环境 fallback 到全局 `~/.claude/voice-mode`（已删除遗留文件，#17 待改 hook）
+- 非 tmux 环境直接 exit 0，不触发语音（#17 已完成）
 - 链路：speaker 按钮 → flag 文件 → voice-inject.sh → CC 生成 tag → voice-push.sh → POST /voice-event → edge-tts → WS broadcast
 
 ## Claude Code 自动化（03-04 搭建）
