@@ -1,10 +1,9 @@
 # TODO
 
-## #19 [03-07] 通知 hook 多环境适配 — ⬜
-- 现状：notify.sh 固定用 terminal-notifier + afplay（Cursor 桌面通知）
-- 问题：手机远端使用 CC 时，通知仍然弹在 Mac 桌面，手机收不到
-- 需要：类似语音重构的思路，根据环境路由通知到不同通道
-- [详细方案](../docs/notification-refactor-design.md)
+## #20 [03-07] 通知系统重构后验证 — ⬜
+- /notify skill 真机测试（local / web / both / off）
+- 手机浏览器 Notification API 权限授权 + 通知弹出
+- 标题闪烁 + 蜂鸣音效果确认
 
 ## #18 [03-07] 语音系统重构后验证 — ✅
 - /voice skill 真机测试（local / web / both / off）— 通过
@@ -12,16 +11,20 @@
 - 电脑 Cursor/Terminal 确认 afplay 本地播放正常
 
 ## #14 [03-04] 移动端滑动+选中统一交互 — ⬜
-- 合并 #12（滑动历史）+ #13（文本选择）
-- touch scroll 已实现（03-04 commit），待真机验证
-- 选中/复制部分待设计
+- #12 滑动历史 ✅ 已完成
+- #13 长按选中待实现
+- 手势分流：短滑=滚动 / 长按=选中 / 点按=键盘
 
-## #12 [03-03] 远程界面滑动查看历史 — ⬜
-- 路线1已回退，03-04 用 touchstart/move/end 重新实现
-- 待手机验证是否可关闭
+## #12 [03-07] 远程界面滑动查看历史 — ✅
+- 路线1（scroll zone + tmux copy-mode）已回退
+- 路线2（term.scrollLines）失败 — xterm.js buffer 为空（tmux 管理自己的 buffer）
+- 路线3（\x01scroll 协议 + tmux copy-mode server-side）— 真机验证通过
+- 优化完成：iOS 自然方向 + 非线性加速曲线 + Apple 0.95 衰减惯性
 
-## #13 [03-03] 移动端文本选择/复制体验优化 — ⬜
-- 对标 Termius 原生选择
+## #13 [03-07] 移动端文本选择/复制体验优化 — ⬜
+- 长按进入选中模式，滑动选中文本，松手复制
+- 不能与普通滑动滚动、键盘输入冲突
+- 对标 Termius 原生选择体验
 
 ## #5 [—] 语音代理 C2：自然对话感 — ⬜
 - [setup-guide#C2](../docs/remote-claude-setup-guide.md#方案-c2语音代理自然对话感)

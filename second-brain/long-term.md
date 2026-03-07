@@ -16,6 +16,13 @@
 - 1 agent: `mobile-ux-reviewer`（移动端 UX 检查清单）
 - 1 MCP: Playwright（浏览器自动化测试）
 
+## 移动端触摸滚动（03-07 实现）
+- 根因：xterm.js scrollback buffer 连 tmux 时永远为空（tmux 管自己的 buffer）
+- 方案：`\x01scroll:up:N` / `down:N` / `exit` WebSocket 协议，server 端 `tmux copy-mode` + `send-keys -X scroll-up/down`
+- 物理参数：Apple 原生 0.95/帧衰减，非线性加速 `pow(px/6, 1.6)`，40ms 节流
+- 手势分流：短滑=滚动 / 长按=选中(待实现) / 点按=键盘
+- 详见 skill `tmux-xterm-scroll`
+
 ## 移动端输入模型
 - Diff-based：观察结果（textarea value diff）而非拦截事件
 - 四层协作：keydown（物理键）→ beforeinput（软 Enter）→ input（diff 核心）→ compositionend（时间戳）
