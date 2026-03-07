@@ -35,6 +35,10 @@ final class NetworkMonitor: ObservableObject {
     private let queue = DispatchQueue(label: "com.claudeterminal.networkmonitor", qos: .utility)
     private var wasConnected: Bool = true
 
+    /// v6: Debounce timer to avoid rapid reconnects on flaky network transitions.
+    private var debounceWorkItem: DispatchWorkItem?
+    private let debounceInterval: TimeInterval = 2.0
+
     // MARK: - Lifecycle
 
     init() {
@@ -58,23 +62,33 @@ final class NetworkMonitor: ObservableObject {
                 self.isConnected = nowConnected
                 self.connectionType = type
 
+                // v6: Cancel any pending debounce before scheduling a new one
+                self.debounceWorkItem?.cancel()
+
                 // Detect transitions
                 if nowConnected && !self.wasConnected {
-                    // Network restored — trigger reconnect
-                    print("[network] restored (\(type.rawValue))")
-                    DebugLogStore.shared.log("Network restored (\(type.rawValue))", category: .network)
-                    self.onNetworkRestored?()
+                    // Network restored — debounce before triggering reconnect
+                    print("[network] restored (\(type.rawValue)), debouncing \(self.debounceInterval)s")
+                    DebugLogStore.shared.log("Network restored (\(type.rawValue)), debouncing...", category: .network)
+                    let work = DispatchWorkItem { [weak self] in
+                        self?.onNetworkRestored?()
+                    }
+                    self.debounceWorkItem = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.debounceInterval, execute: work)
                 } else if !nowConnected && self.wasConnected {
-                    // Network lost
+                    // Network lost — notify immediately (no debounce needed)
                     print("[network] lost")
                     DebugLogStore.shared.log("Network lost", category: .network)
                     self.onNetworkLost?()
                 } else if nowConnected && self.wasConnected && type != .unknown {
-                    // Network type changed (e.g. WiFi -> Cellular)
-                    // The underlying socket may be broken — trigger reconnect
-                    print("[network] path changed to \(type.rawValue)")
-                    DebugLogStore.shared.log("Path changed to \(type.rawValue)", category: .network)
-                    self.onNetworkRestored?()
+                    // Network type changed (e.g. WiFi -> Cellular) — debounce
+                    print("[network] path changed to \(type.rawValue), debouncing \(self.debounceInterval)s")
+                    DebugLogStore.shared.log("Path changed to \(type.rawValue), debouncing...", category: .network)
+                    let work = DispatchWorkItem { [weak self] in
+                        self?.onNetworkRestored?()
+                    }
+                    self.debounceWorkItem = work
+                    DispatchQueue.main.asyncAfter(deadline: .now() + self.debounceInterval, execute: work)
                 }
 
                 self.wasConnected = nowConnected
