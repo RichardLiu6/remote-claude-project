@@ -90,13 +90,32 @@ if [ "$PROJECT" = "kill-latest" ] || [ "$PROJECT" = "关闭最近" ]; then
     exit 0
 fi
 
+if [ "$PROJECT" = "kill-pick" ]; then
+    # 接受逗号分隔的 session 名，批量关闭（供 iOS 快捷指令）
+    NAMES="$SKIP_MODE"
+    if [ -z "$NAMES" ]; then
+        echo "Usage: $0 kill-pick name1,name2,..."
+        exit 1
+    fi
+    IFS=',' read -ra SESSIONS <<< "$NAMES"
+    for sess in "${SESSIONS[@]}"; do
+        if tmux has-session -t "$sess" 2>/dev/null; then
+            tmux send-keys -t "$sess" "/exit" Enter
+        fi
+    done
+    sleep 3
+    for sess in "${SESSIONS[@]}"; do
+        tmux kill-session -t "$sess" 2>/dev/null && echo "Closed: $sess"
+    done
+    stop_web_terminal_if_idle
+    exit 0
+fi
+
 if [ "$PROJECT" = "kill" ]; then
     SESSION_TO_KILL="$SKIP_MODE"
     if tmux has-session -t "$SESSION_TO_KILL" 2>/dev/null; then
-        # 先给 Claude Code 发 /exit 优雅退出
         tmux send-keys -t "$SESSION_TO_KILL" "/exit" Enter
         sleep 2
-        # 再关闭 tmux 会话
         tmux kill-session -t "$SESSION_TO_KILL" 2>/dev/null
         echo "Closed session: $SESSION_TO_KILL"
     else
