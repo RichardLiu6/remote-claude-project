@@ -48,6 +48,12 @@ stop_web_terminal_if_idle() {
 }
 
 # 特殊命令：关闭 tmux 会话
+if [ "$PROJECT" = "projects" ]; then
+    # 输出所有可用项目名，逗号分隔（供 iOS 快捷指令 Split by Comma）
+    grep -E '^\s+\S+\)\s+DIR=' "$0" | sed 's/).*//' | sed 's/^ *//' | paste -sd ',' -
+    exit 0
+fi
+
 if [ "$PROJECT" = "list" ]; then
     tmux list-sessions -F '#{session_name}' 2>/dev/null || echo "No active sessions"
     exit 0
