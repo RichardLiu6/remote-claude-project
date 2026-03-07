@@ -6,6 +6,8 @@
 - 开关：统一 `/voice` skill（local/web/both/off），默认 both
 - 链路：/voice 创建 flag → voice-inject.sh 检查 flag 注入指令 → CC 生成 tag → voice-push.sh 路由到 afplay / POST server
 - session_id 通过 hook stdin JSON 获取，每次 UserPromptSubmit 写入 ~/.claude/current-session-id 供 skill 读取
+- `/voice` 无参数 toggle：关→开用 tmux 检测默认通道（tmux=web, 非 tmux=local），开→关
+- **不能默认 both**：local 通道的 afplay 始终在 Mac 执行，手机远端操作时 Mac 会无故出声
 - [设计文档](../docs/plans/2026-03-07-voice-refactor-design.md)
 
 ## Claude Code 自动化（03-04 搭建）

@@ -43,7 +43,7 @@ Related: 语音重构 (#17/#18), [voice refactor design](plans/2026-03-07-voice-
 1. 从 stdin JSON 读 session_id
 2. 检查 notify-local-{id} → 执行现有 terminal-notifier + afplay
 3. 检查 notify-web-{id} → POST 到 server.js 新端点 /notify-event
-4. 都没有 → 默认 both（local + web，通知不应静默）
+4. 都没有 → tmux 推断默认通道（tmux=web, 非 tmux=local），执行对应通道
 5. notify-off-{id} 存在 → 静默退出（/notify off 创建此文件）
 ```
 
@@ -66,7 +66,7 @@ POST /notify-event
 
 完全复用语音重构的模式：CC session_id 标识、flag 文件双通道、skill 开关。一个 session 通常只在一个平台使用，不需要同时开。
 
-与语音唯一区别：**默认开启 both**。无 flag 文件时 notify.sh 同时执行 local + web（通知不应静默，且 session_id 天然隔离不会串台）。`/notify off` 可关闭。
+与语音完全一致：无 flag 时 tmux 推断默认通道（tmux=web, 非 tmux=local）。`/notify off` 创建 off flag 静默退出。
 
 ## 需要考虑的问题
 

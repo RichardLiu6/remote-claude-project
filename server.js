@@ -123,6 +123,20 @@ app.get('/voice-event', (req, res) => {
   res.json(lastVoiceEvent || { text: null });
 });
 
+// --- Notification broadcast endpoint ---
+function broadcastNotify(payload) {
+  const msg = '\x01notify:' + JSON.stringify(payload);
+  wss.clients.forEach(client => {
+    if (client.readyState === 1) client.send(msg);
+  });
+}
+
+app.post('/notify-event', (req, res) => {
+  const { title, message } = req.body;
+  broadcastNotify({ title, message });
+  res.json({ ok: true });
+});
+
 // --- Clipboard bridge (Mac pbpaste → phone browser) ---
 app.get('/api/clipboard', (req, res) => {
   try {

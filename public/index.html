@@ -393,6 +393,69 @@
     });
   }
 
+  // --- Notify handling ---
+  let _titleFlashTimer = null;
+  const _originalTitle = document.title;
+
+  function playBeep() {
+    try {
+      const ctx = new (window.AudioContext || window.webkitAudioContext)();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = 880;
+      gain.gain.value = 0.3;
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+      osc.start();
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
+      osc.stop(ctx.currentTime + 0.3);
+      setTimeout(() => ctx.close(), 500);
+    } catch (e) {
+      console.log('[notify] beep failed:', e);
+    }
+  }
+
+  function startTitleFlash() {
+    if (_titleFlashTimer) return; // already flashing
+    let toggle = false;
+    _titleFlashTimer = setInterval(() => {
+      document.title = toggle ? _originalTitle : '\u26A0 \u9700\u8981\u64CD\u4F5C';
+      toggle = !toggle;
+    }, 1000);
+  }
+
+  function stopTitleFlash() {
+    if (_titleFlashTimer) {
+      clearInterval(_titleFlashTimer);
+      _titleFlashTimer = null;
+      document.title = _originalTitle;
+    }
+  }
+
+  // Stop title flashing when user focuses the page
+  window.addEventListener('focus', stopTitleFlash);
+
+  function handleNotifyEvent(payload) {
+    const title = payload.title || 'Claude Terminal';
+    const message = payload.message || '';
+
+    // Browser notification
+    if (Notification.permission === 'granted') {
+      new Notification(title, { body: message });
+    } else if (Notification.permission !== 'denied') {
+      Notification.requestPermission().then(perm => {
+        if (perm === 'granted') new Notification(title, { body: message });
+      });
+    }
+
+    // Flash page title
+    startTitleFlash();
+
+    // Play beep sound
+    playBeep();
+  }
+
   async function loadSessions() {
     try {
       const res = await fetch('/api/sessions');
@@ -667,6 +730,10 @@
       const data = typeof e.data === 'string' ? e.data : new TextDecoder().decode(e.data);
       if (data.startsWith('\x01voice:')) {
         try { handleVoiceEvent(JSON.parse(data.slice(7))); } catch {}
+        return;
+      }
+      if (data.startsWith('\x01notify:')) {
+        try { handleNotifyEvent(JSON.parse(data.slice(8))); } catch {}
         return;
       }
       if (term) term.write(data);
@@ -1097,6 +1164,10 @@
   });
 
   // Init
+  // Request notification permission early so the browser prompt appears on first load
+  if ('Notification' in window && Notification.permission === 'default') {
+    Notification.requestPermission();
+  }
   loadSessions();
 </script>
 </body>
