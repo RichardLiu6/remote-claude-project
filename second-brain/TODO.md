@@ -24,11 +24,11 @@
 ## #7 [—] iMessage D2：AppleScript 文字入口 — ⬜
 - [setup-guide#D2](../docs/remote-claude-setup-guide.md#d2imessage文字为主mac-原生)
 
-## #16 [03-07] 原生 iOS App：SwiftUI + SwiftTerm — 🔄
-- v1-v6 工程完成，v6 评审中
-- 评分趋势：5.5→7.5→8.5→8.8→v6待评
-- v6: 动态字体、代码拆分(852→4文件)、断线遮罩、横屏迷你栏、Select按钮、Onboarding增强
-- [v5 用户评价](../docs/ios-app-user-review-v5.md) | [v5 PM](../docs/ios-app-pm-assessment-v5.md)
+## #16 [03-07] 原生 iOS App：SwiftUI + SwiftTerm — ✅
+- v1-v6 六版本迭代完成，用户评分 5.5→7.5→8.5→8.8→9.2
+- PM 评分 9.3/10，TestFlight 就绪度 85-90%
+- 剩余：滚动真机验证 + Signing + TestFlight 提交
+- [v6 用户评价](../docs/ios-app-user-review-v6.md) | [v6 PM](../docs/ios-app-pm-assessment-v6.md)
 
 ## #23 [03-07] 多渠道消息 Agent 框架 — ⬜
 - WeCom + Lark + Minimax API 统一 Agent
