@@ -107,24 +107,41 @@
       overscroll-behavior: contain;
     }
 
-    /* Hidden textarea for mobile keyboard capture.
-       Positioned off-screen so it never overlays xterm canvas
-       (overlay causes iOS compositing to break CJK/emoji rendering). */
+    /* Mobile input bar — visible below terminal when keyboard is open.
+       When keyboard is closed, collapsed to 1px off-screen so it stays focusable
+       (display:none prevents focus). adjustQuickBarPosition() toggles the
+       .input-visible class to show/hide it. */
     #overlay-input {
       position: fixed;
       bottom: 0;
       left: -9999px;
       width: 1px;
       height: 1px;
-      opacity: 0.01; /* Not 0 — iOS needs non-zero opacity to trigger keyboard */
+      opacity: 0.01;
+      background: rgba(15, 52, 96, 0.85);
+      color: #c8d8f0;
       border: none;
+      border-top: 1px solid #233a6a;
       outline: none;
       resize: none;
       font-size: 16px; /* Prevent iOS auto-zoom */
+      font-family: Menlo, Monaco, 'Courier New', monospace;
       padding: 0;
       margin: 0;
+      z-index: 99;
       -webkit-appearance: none;
-      display: none; /* Shown only on mobile after connect */
+      display: none; /* Shown on mobile after connect */
+    }
+    #overlay-input.input-visible {
+      left: 0;
+      right: 0;
+      width: 100%;
+      height: 36px;
+      opacity: 1;
+      padding: 8px 12px;
+    }
+    #overlay-input::placeholder {
+      color: rgba(160, 196, 255, 0.45);
     }
 
     /* Floating quick-bar (above keyboard on mobile) */
@@ -287,6 +304,7 @@
   <textarea id="overlay-input"
     autocomplete="off" autocorrect="off" autocapitalize="off"
     spellcheck="false" enterkeyhint="send"
+    placeholder="Type here..."
     aria-label="Terminal input"></textarea>
   <input type="file" id="file-upload" accept="image/*" style="display:none">
 </div>
@@ -323,6 +341,7 @@
   let resizeHandler = null;
   let vpResizeHandler = null;
   let selectMode = false;  // When true, taps allow text selection instead of opening keyboard
+  let _inScrollMode = false;  // Track tmux copy-mode / scroll state (hoisted for adjustQuickBarPosition)
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
 
@@ -650,33 +669,50 @@
   }
 
   // --- Viewport / keyboard adjustment ---
+  let _keyboardOpen = false;  // Track keyboard state for Task 3 (swipe re-focus)
+
   function adjustQuickBarPosition() {
     if (!window.visualViewport) return;
     const vvh = window.visualViewport.height;
     const fullH = window.innerHeight;
     const kbHeight = fullH - vvh - window.visualViewport.offsetTop;
     if (kbHeight > 50) {
-      // Keyboard is open — shrink container to fit above keyboard + quick-bar
+      // Keyboard is open
+      _keyboardOpen = true;
       quickBar.style.display = 'flex';
       quickBar.style.bottom = kbHeight + 'px';
       const qbH = quickBar.offsetHeight || 44;
+
+      // Show input bar above quick-bar (below terminal), hide if in scroll mode
+      if (isMobile && !_inScrollMode) {
+        overlayInput.classList.add('input-visible');
+        overlayInput.style.bottom = (kbHeight + qbH) + 'px';
+      } else {
+        overlayInput.classList.remove('input-visible');
+      }
+      const inputH = (!_inScrollMode && isMobile) ? 36 : 0;
+
       const topbarH = document.getElementById('topbar').offsetHeight || 48;
       const statusH = document.getElementById('status').offsetHeight || 20;
-      // Explicit height = viewport minus topbar/status minus quick-bar
-      container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
+      // Explicit height = viewport minus topbar/status minus input-bar minus quick-bar
+      container.style.height = (vvh - topbarH - statusH - qbH - inputH) + 'px';
       container.style.flex = 'none';
     } else if (selectMode) {
       // Keyboard closed BUT select mode active — keep quick-bar visible at bottom
+      _keyboardOpen = false;
       quickBar.style.display = 'flex';
       quickBar.style.bottom = '0';
+      overlayInput.classList.remove('input-visible');
       const qbH = quickBar.offsetHeight || 44;
       const topbarH = document.getElementById('topbar').offsetHeight || 48;
       const statusH = document.getElementById('status').offsetHeight || 20;
       container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
       container.style.flex = 'none';
     } else {
-      // Keyboard is closed — restore flex layout
+      // Keyboard is closed — restore flex layout, hide input bar
+      _keyboardOpen = false;
       quickBar.style.display = 'none';
+      overlayInput.classList.remove('input-visible');
       container.style.height = '';
       container.style.flex = '1';
     }
@@ -830,7 +866,7 @@
       let _touchMoved = false;
       let _scrollThrottleTimer = null;
       let _pendingScroll = 0;
-      let _inScrollMode = false;
+      // _inScrollMode is hoisted to outer scope for adjustQuickBarPosition access
       // Momentum state
       let _lastMoveTime = 0;
       let _velocity = 0;
@@ -841,7 +877,10 @@
         const dir = _pendingScroll > 0 ? 'up' : 'down';
         const n = Math.min(Math.abs(_pendingScroll), 50);
         wsSend('\x01scroll:' + dir + ':' + n);
-        _inScrollMode = true;
+        if (!_inScrollMode) {
+          _inScrollMode = true;
+          adjustQuickBarPosition();  // Hide input bar when entering scroll mode
+        }
         _pendingScroll = 0;
       };
 
@@ -880,18 +919,66 @@
         _momentumRAF = requestAnimationFrame(step);
       };
 
+      // --- Long-press detection for select mode (Task 2) ---
+      let _longPressTimer = null;
+      let _touchStartX = 0;
+      const LONG_PRESS_MS = 500;
+      const LONG_PRESS_MOVE_THRESHOLD = 5; // px — cancel if finger moves more than this
+      let _longPressTriggered = false;
+
+      function cancelLongPress() {
+        if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
+      }
+
+      // Auto-copy selected text from select-overlay
+      function autoCopySelection() {
+        const sel = window.getSelection();
+        const text = sel ? sel.toString() : '';
+        if (text) {
+          navigator.clipboard.writeText(text).catch(() => {});
+        }
+      }
+
       document.addEventListener('touchstart', (e) => {
         _touchStartY = e.touches[0].clientY;
+        _touchStartX = e.touches[0].clientX;
         _touchMoved = false;
+        _longPressTriggered = false;
         _lastMoveTime = performance.now();
         _velocity = 0;
         stopMomentum();
+        cancelLongPress();
+
+        // Start long-press timer — only on terminal area, not on quick-bar/topbar
+        const target = e.target;
+        const isTerminalArea = container.contains(target) && !selectOverlay.contains(target);
+        if (isTerminalArea && !selectMode) {
+          _longPressTimer = setTimeout(() => {
+            _longPressTriggered = true;
+            // Enter select mode via long-press
+            selectMode = true;
+            overlayInput.blur();
+            showSelectOverlay();
+            adjustQuickBarPosition();
+            // Update Select button state if it exists
+            const selBtns = quickBar.querySelectorAll('.select-btn');
+            selBtns.forEach(b => { b.className = 'select-btn active'; b.textContent = 'Select \u2713'; });
+          }, LONG_PRESS_MS);
+        }
       }, { passive: true, capture: true });
 
       document.addEventListener('touchmove', (e) => {
         const deltaY = _touchStartY - e.touches[0].clientY;
+        const deltaX = _touchStartX - e.touches[0].clientX;
+
+        // Cancel long-press if finger moved beyond threshold
+        if (Math.abs(deltaY) > LONG_PRESS_MOVE_THRESHOLD || Math.abs(deltaX) > LONG_PRESS_MOVE_THRESHOLD) {
+          cancelLongPress();
+        }
+
         if (Math.abs(deltaY) > 5) {
           _touchMoved = true;
+          cancelLongPress();  // Definitely not a long-press
           const now = performance.now();
           const dt = now - _lastMoveTime || 16;
           // iOS natural scroll: finger up → content moves up → see newer → scroll-down
@@ -913,6 +1000,7 @@
       }, { passive: true, capture: true });
 
       document.addEventListener('touchend', () => {
+        cancelLongPress();
         // Flush any remaining scroll
         if (_scrollThrottleTimer) {
           clearTimeout(_scrollThrottleTimer);
@@ -923,16 +1011,47 @@
         if (_touchMoved && Math.abs(_velocity) > 5) {
           startMomentum();
         }
+
+        // Long-press triggered select mode — auto-copy on touchend
+        if (_longPressTriggered) {
+          _longPressTriggered = false;
+          // Give selection a moment to finalize, then copy
+          setTimeout(() => { autoCopySelection(); }, 100);
+          return;
+        }
+
         if (!_touchMoved) {
           stopMomentum();
+          // If in select mode, check for selection and copy, then exit
+          if (selectMode) {
+            autoCopySelection();
+            return;
+          }
           // Tap: exit copy-mode and open keyboard
           if (_inScrollMode) {
             wsSend('\x01scroll:exit');
             _inScrollMode = false;
+            adjustQuickBarPosition();  // Refresh input bar visibility
           }
-          if (!selectMode) overlayInput.focus();
+          overlayInput.focus();
+        } else {
+          // Task 3: Swipe happened (_touchMoved = true).
+          // If keyboard was already open before swipe, re-focus to keep input working.
+          if (_keyboardOpen) {
+            overlayInput.focus();
+          }
         }
       }, { capture: true });
+
+      // Listen for selection changes in select-overlay to auto-copy (Task 2)
+      document.addEventListener('selectionchange', () => {
+        if (!selectMode) return;
+        // Debounce — only copy after selection stabilizes
+        if (window._selCopyTimer) clearTimeout(window._selCopyTimer);
+        window._selCopyTimer = setTimeout(() => {
+          autoCopySelection();
+        }, 300);
+      });
     }
 
     // WebSocket connection
@@ -975,9 +1094,12 @@
     }
     fitAddon = null;
     selectMode = false;
+    _inScrollMode = false;
+    _keyboardOpen = false;
     // Hide mobile overlay + quick-bar + select overlay, restore flex layout
     hideSelectOverlay();
     overlayInput.style.display = 'none';
+    overlayInput.classList.remove('input-visible');
     quickBar.style.display = 'none';
     container.style.height = '';
     container.style.flex = '1';
