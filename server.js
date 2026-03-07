@@ -246,6 +246,22 @@ wss.on('connection', (ws) => {
       }
       return;
     }
+    // Handle scroll messages: \x01scroll:up:N or \x01scroll:down:N or \x01scroll:exit
+    if (str.startsWith('\x01scroll:')) {
+      const parts = str.slice(8).split(':');
+      const tmux = '/opt/homebrew/bin/tmux';
+      try {
+        if (parts[0] === 'exit') {
+          execSync(`${tmux} send-keys -t "${session}" -X cancel 2>/dev/null`);
+        } else {
+          const dir = parts[0] === 'up' ? 'scroll-up' : 'scroll-down';
+          const n = Math.min(parseInt(parts[1]) || 1, 50);
+          // copy-mode is idempotent — safe to call even if already in copy-mode
+          execSync(`${tmux} copy-mode -t "${session}" 2>/dev/null; ${tmux} send-keys -t "${session}" -X -N ${n} ${dir} 2>/dev/null`);
+        }
+      } catch {}
+      return;
+    }
     pty.write(str);
   });
 

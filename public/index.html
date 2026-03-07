@@ -822,40 +822,62 @@
       }
     });
 
-    // Mobile: touch scroll + tap-to-focus.
+    // Mobile: touch scroll via tmux copy-mode + tap-to-focus.
+    // xterm.js scrollback is empty (tmux manages its own buffer),
+    // so we send scroll commands to tmux instead of calling term.scrollLines().
     if (isMobile) {
       let _touchStartY = 0;
       let _touchMoved = false;
-      const xtermScreen = container.querySelector('.xterm-screen');
-      const touchTarget = xtermScreen || container;
+      let _scrollThrottleTimer = null;
+      let _pendingScroll = 0;
+      let _inScrollMode = false;
 
-      // DEBUG: visible indicator — remove after diagnosis
-      const _dbg = document.createElement('div');
-      _dbg.style.cssText = 'position:fixed;top:0;left:0;right:0;background:rgba(255,0,0,0.85);color:#fff;font:bold 14px monospace;padding:6px 10px;z-index:99999;pointer-events:none;';
-      _dbg.textContent = 'target=' + (xtermScreen ? '.xterm-screen' : 'container') + ' | moves=0 | scrollPos=' + (term.buffer.active.viewportY);
-      document.body.appendChild(_dbg);
-      let _moveCount = 0;
+      const flushScroll = () => {
+        if (_pendingScroll === 0) return;
+        const dir = _pendingScroll > 0 ? 'up' : 'down';
+        const n = Math.abs(_pendingScroll);
+        wsSend('\x01scroll:' + dir + ':' + n);
+        _inScrollMode = true;
+        _pendingScroll = 0;
+      };
 
-      // Register on DOCUMENT capture to bypass any element-level blocking
       document.addEventListener('touchstart', (e) => {
         _touchStartY = e.touches[0].clientY;
         _touchMoved = false;
       }, { passive: true, capture: true });
+
       document.addEventListener('touchmove', (e) => {
         const deltaY = _touchStartY - e.touches[0].clientY;
         if (Math.abs(deltaY) > 5) {
           _touchMoved = true;
-          const lines = Math.round(deltaY / 20);
-          term.scrollLines(lines);
+          // Accumulate scroll lines (positive = up, negative = down)
+          _pendingScroll += Math.round(deltaY / 15);
           _touchStartY = e.touches[0].clientY;
-          _moveCount++;
-          _dbg.textContent = 'moves=' + _moveCount + ' | delta=' + deltaY.toFixed(0) + ' | lines=' + lines + ' | viewportY=' + term.buffer.active.viewportY + '/' + term.buffer.active.length;
+          // Throttle: flush at most every 80ms
+          if (!_scrollThrottleTimer) {
+            _scrollThrottleTimer = setTimeout(() => {
+              flushScroll();
+              _scrollThrottleTimer = null;
+            }, 80);
+          }
         }
       }, { passive: true, capture: true });
-      // Only focus (open keyboard) on tap, not after scroll
+
       document.addEventListener('touchend', () => {
-        // Check if touch was inside terminal area
-        if (!_touchMoved && !selectMode) overlayInput.focus();
+        // Flush any remaining scroll
+        if (_scrollThrottleTimer) {
+          clearTimeout(_scrollThrottleTimer);
+          _scrollThrottleTimer = null;
+        }
+        flushScroll();
+        if (!_touchMoved) {
+          // Tap: exit copy-mode and open keyboard
+          if (_inScrollMode) {
+            wsSend('\x01scroll:exit');
+            _inScrollMode = false;
+          }
+          if (!selectMode) overlayInput.focus();
+        }
       }, { capture: true });
     }
 
