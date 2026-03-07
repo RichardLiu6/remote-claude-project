@@ -26,6 +26,7 @@
 		A1000017 /* SessionSwitcher.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000017; };
 		A1000018 /* FileUploadManager.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000018; };
 		A1000019 /* DebugLogPanel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000019; };
+		A1000020 /* OnboardingView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A2000020; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -47,6 +48,7 @@
 		A2000017 /* SessionSwitcher.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionSwitcher.swift; sourceTree = "<group>"; };
 		A2000018 /* FileUploadManager.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FileUploadManager.swift; sourceTree = "<group>"; };
 		A2000019 /* DebugLogPanel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DebugLogPanel.swift; sourceTree = "<group>"; };
+		A2000020 /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		A3000001 /* ClaudeTerminal.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ClaudeTerminal.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
@@ -93,6 +95,7 @@
 				A2000016 /* TerminalToolbar.swift */,
 				A2000017 /* SessionSwitcher.swift */,
 				A2000019 /* DebugLogPanel.swift */,
+				A2000020 /* OnboardingView.swift */,
 				A2000005 /* InputAccessoryBar.swift */,
 			);
 			path = Views;
@@ -244,6 +247,7 @@
 				A1000017 /* SessionSwitcher.swift in Sources */,
 				A1000018 /* FileUploadManager.swift in Sources */,
 				A1000019 /* DebugLogPanel.swift in Sources */,
+				A1000020 /* OnboardingView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -389,7 +393,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.0;
+				MARKETING_VERSION = 5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.claude.terminal;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";
@@ -420,7 +424,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 4.0;
+				MARKETING_VERSION = 5.0;
 				PRODUCT_BUNDLE_IDENTIFIER = com.claude.terminal;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator";

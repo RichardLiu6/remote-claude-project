@@ -18,10 +18,16 @@ extension UIWindow {
 
 @main
 struct ClaudeTerminalApp: App {
+    @State private var showOnboarding = !UserDefaults.standard.bool(forKey: "onboarding_completed")
+
     var body: some Scene {
         WindowGroup {
             SessionPickerView()
                 .preferredColorScheme(.dark)
+                .fullScreenCover(isPresented: $showOnboarding) {
+                    OnboardingView(isPresented: $showOnboarding)
+                        .preferredColorScheme(.dark)
+                }
         }
     }
 }
