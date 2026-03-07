@@ -188,29 +188,25 @@
       color: #ffffff;
       border-color: #6a42a0;
     }
-    #quick-bar .select-btn.active {
-      background: #1e6f50;
-      color: #ffffff;
-      border-color: #2a9d6f;
-    }
-
-    /* Selectable text overlay for mobile Select mode */
-    #select-overlay {
+    /* Copied toast notification */
+    .copied-toast {
       position: absolute;
-      top: 0; left: 0; right: 0; bottom: 0;
-      z-index: 10;
-      background: rgba(26, 26, 46, 0.95);
-      color: #e0e0e0;
-      font-family: Menlo, Monaco, 'Courier New', monospace;
-      font-size: 12px;
-      line-height: 1.2;
-      white-space: pre;
-      overflow: auto;
-      -webkit-overflow-scrolling: touch;
-      -webkit-user-select: text;
-      user-select: text;
-      padding: 4px 2px;
-      display: none;
+      top: 12px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: rgba(74, 222, 128, 0.9);
+      color: #000;
+      padding: 6px 16px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      z-index: 20;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.3s;
+    }
+    .copied-toast.show {
+      opacity: 1;
     }
 
     /* Session picker */
@@ -300,7 +296,6 @@
 <div id="status" aria-live="polite" aria-atomic="true"></div>
 <div id="terminal-container">
   <div id="picker"><h2>Loading sessions...</h2></div>
-  <div id="select-overlay"></div>
   <textarea id="overlay-input"
     autocomplete="off" autocorrect="off" autocapitalize="none"
     spellcheck="false" enterkeyhint="send" inputmode="text"
@@ -340,7 +335,6 @@
   // Handler references for cleanup
   let resizeHandler = null;
   let vpResizeHandler = null;
-  let selectMode = false;  // When true, taps allow text selection instead of opening keyboard
   let _inScrollMode = false;  // Track tmux copy-mode / scroll state (hoisted for adjustQuickBarPosition)
 
   const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
@@ -352,8 +346,6 @@
   const sessionSelect = document.getElementById('session-select');
   const overlayInput = document.getElementById('overlay-input');
   const quickBar = document.getElementById('quick-bar');
-  const selectOverlay = document.getElementById('select-overlay');
-
   function setStatus(text, cls) {
     statusEl.textContent = text;
     statusEl.className = cls || '';
@@ -525,34 +517,17 @@
     if (isMobile) overlayInput.focus();
   }
 
-  // --- Select mode: selectable text overlay ---
-  // Reads terminal buffer content and shows it in a native-selectable div
-  // so iOS long-press text selection works (canvas doesn't support native select).
-  function showSelectOverlay() {
-    if (!term) return;
-    const buf = term.buffer.active;
-    const lines = [];
-    for (let i = 0; i < buf.length; i++) {
-      const line = buf.getLine(i);
-      if (line) lines.push(line.translateToString(true).replace(/[·.]{3,}$/, ''));
+  // --- Copied toast notification ---
+  function showCopiedToast() {
+    let toast = container.querySelector('.copied-toast');
+    if (!toast) {
+      toast = document.createElement('div');
+      toast.className = 'copied-toast';
+      toast.textContent = 'Copied!';
+      container.appendChild(toast);
     }
-    // Trim trailing empty lines
-    while (lines.length > 0 && lines[lines.length - 1].trim() === '') lines.pop();
-    // Linkify URLs so they're tappable on mobile
-    const urlRe = /https?:\/\/[^\s<>"')\]]+/g;
-    const escaped = lines.join('\n')
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    selectOverlay.innerHTML = escaped.replace(urlRe, m =>
-      `<a href="${m}" target="_blank" rel="noopener" style="color:#60a5fa;text-decoration:underline">${m}</a>`
-    );
-    // Match terminal font size
-    selectOverlay.style.fontSize = (term.options.fontSize || 12) + 'px';
-    selectOverlay.style.display = 'block';
-  }
-
-  function hideSelectOverlay() {
-    selectOverlay.style.display = 'none';
-    selectOverlay.textContent = '';
+    toast.classList.add('show');
+    setTimeout(() => { toast.classList.remove('show'); }, 2000);
   }
 
   // Build quick-bar buttons (called once; buttons use mousedown to prevent blur
@@ -591,39 +566,13 @@
       btn.addEventListener('click', (e) => { unlockAudio(); sendKey(k.seq); });
       quickBar.appendChild(btn);
     });
-    // "Select" button — toggle text selection mode
-    const selBtn = document.createElement('button');
-    selBtn.textContent = 'Select';
-    selBtn.setAttribute('aria-label', 'Toggle text selection mode');
-    function updateSelBtn() {
-      selBtn.className = selectMode ? 'select-btn active' : 'select-btn';
-      selBtn.textContent = selectMode ? 'Select ✓' : 'Select';
-    }
-    selBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
-    selBtn.addEventListener('click', () => {
-      selectMode = !selectMode;
-      updateSelBtn();
-      if (selectMode) {
-        overlayInput.blur();
-        showSelectOverlay(); // Show native-selectable text over canvas
-      } else {
-        hideSelectOverlay();
-        overlayInput.focus();
-      }
-      adjustQuickBarPosition();
-    });
-    quickBar.appendChild(selBtn);
-
-    // "Done" button — blurs overlay to dismiss keyboard, exits select mode
+    // "Done" button — blurs overlay to dismiss keyboard
     const doneBtn = document.createElement('button');
     doneBtn.textContent = 'Done';
     doneBtn.className = 'done-btn';
     doneBtn.setAttribute('aria-label', 'Dismiss keyboard');
     doneBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
     doneBtn.addEventListener('click', () => {
-      selectMode = false;
-      updateSelBtn();
-      hideSelectOverlay();
       overlayInput.blur();
       adjustQuickBarPosition();
     });
@@ -706,17 +655,6 @@
       const statusH = document.getElementById('status').offsetHeight || 20;
       // Explicit height = viewport minus topbar/status minus input-bar minus quick-bar
       container.style.height = (vvh - topbarH - statusH - qbH - inputH) + 'px';
-      container.style.flex = 'none';
-    } else if (selectMode) {
-      // Keyboard closed BUT select mode active — keep quick-bar visible at bottom
-      _keyboardOpen = false;
-      quickBar.style.display = 'flex';
-      quickBar.style.bottom = '0';
-      overlayInput.classList.remove('input-visible');
-      const qbH = quickBar.offsetHeight || 44;
-      const topbarH = document.getElementById('topbar').offsetHeight || 48;
-      const statusH = document.getElementById('status').offsetHeight || 20;
-      container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
       container.style.flex = 'none';
     } else {
       // Keyboard is closed — restore flex layout, hide input bar
@@ -936,31 +874,47 @@
         _momentumRAF = requestAnimationFrame(step);
       };
 
-      // --- Long-press detection for select mode (Task 2) ---
+      // --- Long-press detection for in-place text selection ---
       let _longPressTimer = null;
       let _touchStartX = 0;
       const LONG_PRESS_MS = 500;
       const LONG_PRESS_MOVE_THRESHOLD = 5; // px — cancel if finger moves more than this
-      let _longPressTriggered = false;
+      let _isSelecting = false;
+      let _selStart = null; // { row, col }
 
       function cancelLongPress() {
         if (_longPressTimer) { clearTimeout(_longPressTimer); _longPressTimer = null; }
       }
 
-      // Auto-copy selected text from select-overlay
-      function autoCopySelection() {
-        const sel = window.getSelection();
-        const text = sel ? sel.toString() : '';
-        if (text) {
-          navigator.clipboard.writeText(text).catch(() => {});
+      // Map touch coordinates to terminal cell position
+      function touchToCell(clientX, clientY) {
+        const screen = container.querySelector('.xterm-screen');
+        if (!screen || !term) return null;
+        const rect = screen.getBoundingClientRect();
+        const col = Math.floor((clientX - rect.left) / (rect.width / term.cols));
+        const row = Math.floor((clientY - rect.top) / (rect.height / term.rows));
+        return {
+          row: Math.max(0, Math.min(row, term.rows - 1)),
+          col: Math.max(0, Math.min(col, term.cols - 1))
+        };
+      }
+
+      // Select text range using xterm.js API
+      function selectRange(start, end) {
+        if (!term || !start || !end) return;
+        let s = start, e = end;
+        if (s.row > e.row || (s.row === e.row && s.col > e.col)) {
+          s = end; e = start;
         }
+        const length = (e.row - s.row) * term.cols + (e.col - s.col) + 1;
+        term.select(s.col, s.row, length);
       }
 
       document.addEventListener('touchstart', (e) => {
         _touchStartY = e.touches[0].clientY;
         _touchStartX = e.touches[0].clientX;
         _touchMoved = false;
-        _longPressTriggered = false;
+        _isSelecting = false;
         _lastMoveTime = performance.now();
         _velocity = 0;
         stopMomentum();
@@ -968,18 +922,20 @@
 
         // Start long-press timer — only on terminal area, not on quick-bar/topbar
         const target = e.target;
-        const isTerminalArea = container.contains(target) && !selectOverlay.contains(target);
-        if (isTerminalArea && !selectMode) {
+        const isTerminalArea = container.contains(target);
+        if (isTerminalArea && !quickBar.contains(target) && !topbar.contains(target)) {
+          const lpX = e.touches[0].clientX;
+          const lpY = e.touches[0].clientY;
           _longPressTimer = setTimeout(() => {
-            _longPressTriggered = true;
-            // Enter select mode via long-press
-            selectMode = true;
+            _isSelecting = true;
+            _selStart = touchToCell(lpX, lpY);
             overlayInput.blur();
-            showSelectOverlay();
-            adjustQuickBarPosition();
-            // Update Select button state if it exists
-            const selBtns = quickBar.querySelectorAll('.select-btn');
-            selBtns.forEach(b => { b.className = 'select-btn active'; b.textContent = 'Select \u2713'; });
+            // Haptic feedback if available
+            if (navigator.vibrate) navigator.vibrate(30);
+            // Select initial character
+            if (_selStart && term) {
+              term.select(_selStart.col, _selStart.row, 1);
+            }
           }, LONG_PRESS_MS);
         }
       }, { passive: true, capture: true, signal: touchSignal });
@@ -987,6 +943,15 @@
       document.addEventListener('touchmove', (e) => {
         const deltaY = _touchStartY - e.touches[0].clientY;
         const deltaX = _touchStartX - e.touches[0].clientX;
+
+        // If selecting, extend selection instead of scrolling
+        if (_isSelecting) {
+          const cell = touchToCell(e.touches[0].clientX, e.touches[0].clientY);
+          if (cell && _selStart) {
+            selectRange(_selStart, cell);
+          }
+          return;
+        }
 
         // Cancel long-press if finger moved beyond threshold
         if (Math.abs(deltaY) > LONG_PRESS_MOVE_THRESHOLD || Math.abs(deltaX) > LONG_PRESS_MOVE_THRESHOLD) {
@@ -1018,6 +983,21 @@
 
       document.addEventListener('touchend', () => {
         cancelLongPress();
+
+        // If was selecting, auto-copy and finish
+        if (_isSelecting) {
+          _isSelecting = false;
+          _selStart = null;
+          const sel = term ? term.getSelection() : '';
+          if (sel) {
+            navigator.clipboard.writeText(sel).catch(() => {});
+            showCopiedToast();
+            // Clear selection after a brief delay so user sees what was copied
+            setTimeout(() => { if (term) term.clearSelection(); }, 1000);
+          }
+          return;
+        }
+
         // Flush any remaining scroll
         if (_scrollThrottleTimer) {
           clearTimeout(_scrollThrottleTimer);
@@ -1029,21 +1009,8 @@
           startMomentum();
         }
 
-        // Long-press triggered select mode — auto-copy on touchend
-        if (_longPressTriggered) {
-          _longPressTriggered = false;
-          // Give selection a moment to finalize, then copy
-          setTimeout(() => { autoCopySelection(); }, 100);
-          return;
-        }
-
         if (!_touchMoved) {
           stopMomentum();
-          // If in select mode, check for selection and copy, then exit
-          if (selectMode) {
-            autoCopySelection();
-            return;
-          }
           // Tap: exit copy-mode and open keyboard
           if (_inScrollMode) {
             wsSend('\x01scroll:exit');
@@ -1052,23 +1019,12 @@
           }
           overlayInput.focus();
         } else {
-          // Task 3: Swipe happened (_touchMoved = true).
-          // If keyboard was already open before swipe, re-focus to keep input working.
+          // Swipe happened — if keyboard was open, re-focus to keep input working.
           if (_keyboardOpen) {
             overlayInput.focus();
           }
         }
       }, { capture: true, signal: touchSignal });
-
-      // Listen for selection changes in select-overlay to auto-copy (Task 2)
-      document.addEventListener('selectionchange', () => {
-        if (!selectMode) return;
-        // Debounce — only copy after selection stabilizes
-        if (window._selCopyTimer) clearTimeout(window._selCopyTimer);
-        window._selCopyTimer = setTimeout(() => {
-          autoCopySelection();
-        }, 300);
-      }, { signal: touchSignal });
     }
 
     // WebSocket connection
@@ -1120,11 +1076,9 @@
       window._inputController = null;
     }
     fitAddon = null;
-    selectMode = false;
     _inScrollMode = false;
     _keyboardOpen = false;
-    // Hide mobile overlay + quick-bar + select overlay, restore flex layout
-    hideSelectOverlay();
+    // Hide mobile overlay + quick-bar, restore flex layout
     overlayInput.style.display = 'none';
     overlayInput.classList.remove('input-visible');
     quickBar.style.display = 'none';

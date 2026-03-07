@@ -52,7 +52,7 @@ No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` â
   - `destroy()` method aborts all listeners via AbortController -- no event listener leaks on session switch
   - textarea has `inputmode="text"` and `autocorrect="off" autocapitalize="off"` attributes
 - **v2 changes from v1**: soft Enter sends `\r` (was blocked), Tab/Enter reset snapshot, Ctrl+key support, AbortController cleanup, quick-bar expanded with modifier keys
-- **Select mode**: overlays a native-selectable `<div>` with terminal buffer text over the canvas (canvas doesn't support native text selection). Quick-bar stays visible in Select mode
+- **In-place text selection**: long-press (500ms) + drag to select text directly on xterm.js canvas via `term.select()` API. Auto-copies to clipboard on touchend with "Copied!" toast. No overlay, no mode switching
 - **Dynamic font sizing**: after `fitAddon.fit()`, if `term.cols < 70`, fontSize auto-reduces (14->10) to fit config screens. Mobile padding reduced to 2px
 ## Session Startup Rule
 
