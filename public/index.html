@@ -303,7 +303,7 @@
   <div id="select-overlay"></div>
   <textarea id="overlay-input"
     autocomplete="off" autocorrect="off" autocapitalize="off"
-    spellcheck="false" enterkeyhint="send"
+    spellcheck="false" enterkeyhint="send" inputmode="text"
     placeholder="Type here..."
     aria-label="Terminal input"></textarea>
   <input type="file" id="file-upload" accept="image/*" style="display:none">
@@ -521,7 +521,17 @@
 
   // Send raw key sequence to terminal (quick buttons)
   function sendKey(key) {
+    // Flush any buffered input before sending the quick-bar key
+    if (inputController && inputController.state === 'BUFFERING') {
+      clearTimeout(inputController.bufferTimer);
+      inputController.bufferTimer = null;
+      inputController._flush();
+    }
     wsSend(key);
+    // Reset snapshot after Enter/Tab -- terminal state changes
+    if (key === '\r' || key === '\t' || key === '\x1b\r') {
+      if (inputController) inputController.resetSnapshot();
+    }
     if (isMobile) overlayInput.focus();
   }
 
@@ -559,16 +569,22 @@
   // without blocking native horizontal touch-scroll on the quick-bar)
   function buildQuickBar() {
     const keys = [
-      { label: 'NL',   seq: '\x1b\r' },
-      { label: 'Tab',  seq: '\t' },
-      { label: '⇧Tab', seq: '\x1b[Z' },
-      { label: '←',    seq: '\x1b[D' },
-      { label: '→',    seq: '\x1b[C' },
-      { label: '↑',    seq: '\x1b[A' },
-      { label: '↓',    seq: '\x1b[B' },
-      { label: '^C',   seq: '\x03' },
-      { label: 'Esc',  seq: '\x1b' },
-      { label: '/',    seq: '/' },
+      { label: 'Enter', seq: '\r' },
+      { label: 'Tab',   seq: '\t' },
+      { label: 'S-Tab', seq: '\x1b[Z' },
+      { label: 'Left',  seq: '\x1b[D' },
+      { label: 'Right', seq: '\x1b[C' },
+      { label: 'Up',    seq: '\x1b[A' },
+      { label: 'Down',  seq: '\x1b[B' },
+      { label: '^C',    seq: '\x03' },
+      { label: '^D',    seq: '\x04' },
+      { label: '^Z',    seq: '\x1a' },
+      { label: '^A',    seq: '\x01' },
+      { label: '^E',    seq: '\x05' },
+      { label: '^L',    seq: '\x0c' },
+      { label: '^R',    seq: '\x12' },
+      { label: 'Esc',   seq: '\x1b' },
+      { label: '/',     seq: '/' },
     ];
     quickBar.innerHTML = '';
     keys.forEach(k => {
@@ -1067,6 +1083,9 @@
       });
     }
 
+    // Initialize InputController for mobile input
+    initInputController();
+
     // WebSocket connection
     connectWs(session);
 
@@ -1094,6 +1113,7 @@
   // Internal cleanup (no UI state changes)
   function cleanupConnection() {
     clearReconnect();
+    if (inputController) { inputController.destroy(); inputController = null; }
     if (ws) { ws.close(); ws = null; }
     if (term) { term.dispose(); term = null; }
     if (resizeHandler) {
@@ -1129,18 +1149,22 @@
     loadSessions();
   }
 
-  // --- Mobile input: IME composition + real-time character sending ---
+  // --- Mobile input: unified debounce buffer model (v1 rewrite) ---
   //
-  // Uses transparent overlay textarea on top of xterm. User taps terminal →
-  // textarea focuses → keyboard opens. Characters sent immediately to WS.
+  // All input (English, Chinese, autocomplete) goes through a single debounce
+  // buffer (150ms). Instead of sending characters immediately, we wait for the
+  // debounce to expire, then diff textarea.value against a snapshot. This fixes:
+  //   - English autocomplete race conditions (sentBuffer out of sync)
+  //   - Chinese vs English logic divergence
+  //   - 800ms resetTimer misfiring during autocomplete
+  //   - Event listener accumulation on session switch (AbortController)
   //
-  // Three-layer event strategy (unchanged from previous input approach):
-  //   1. keydown handles keys when e.key is recognized (desktop + iOS)
-  //   2. beforeinput handles Backspace/Enter via inputType when keydown misses
-  //   3. input handles normal character insertion (non-IME)
-  //   4. compositionstart/end handles IME (pinyin, etc.)
+  // Uses InputController class with four-state machine:
+  //   IDLE -> COMPOSING -> BUFFERING -> FLUSHING
+  // Special keys (Enter/Tab/Esc/arrows) bypass the buffer and send immediately.
+  // Soft keyboard Enter is blocked (use NL quick-bar button).
 
-  // Special key → terminal escape sequence (hoisted to avoid recreation per keydown)
+  // Special key -> terminal escape sequence
   const KEY_MAP = {
     'Enter':      '\r',
     'ArrowUp':    '\x1b[A',
@@ -1150,56 +1174,6 @@
     'Tab':        '\t',
     'Escape':     '\x1b',
   };
-
-  let justFinishedComposition = false;
-  // Track whether keydown already handled the event this cycle
-  let keydownHandled = false;
-  // iOS Enter fix: track empty-key keydown timestamp to suppress spurious Backspace
-  let _emptyKeyTs = 0;
-  // Flag: insertParagraph already handled Enter, suppress trailing insertText
-  let _enterParagraphHandled = false;
-
-  // --- Autocomplete duplicate prevention ---
-  // Tracks what characters from overlayInput.value have already been sent to the
-  // terminal. When an iOS/Android autocomplete suggestion replaces previously typed
-  // text (e.g. "th" -> "the"), we detect the mismatch and send backspaces to undo
-  // the already-sent chars before sending the replacement word.
-  let sentBuffer = '';
-  // Timer to periodically reset value + sentBuffer to prevent unbounded growth
-  let resetTimer = null;
-
-  function resetSentState() {
-    sentBuffer = '';
-    overlayInput.value = '';
-  }
-
-  // Schedule a deferred reset — if no further input arrives within 800ms,
-  // clear both value and sentBuffer. This prevents the textarea value from
-  // growing indefinitely during long typing sessions.
-  function scheduleReset() {
-    if (resetTimer) clearTimeout(resetTimer);
-    resetTimer = setTimeout(() => {
-      // Only reset if not currently composing
-      if (!isComposing) resetSentState();
-    }, 800);
-  }
-
-  overlayInput.addEventListener('compositionstart', () => {
-    isComposing = true;
-    // Clear any pending reset — we're in the middle of IME input
-    if (resetTimer) { clearTimeout(resetTimer); resetTimer = null; }
-  });
-
-  overlayInput.addEventListener('compositionend', () => {
-    isComposing = false;
-    justFinishedComposition = true;
-    // Send the composed text (e.g. Chinese characters from pinyin IME)
-    const text = overlayInput.value;
-    if (text) wsSend(text);
-    resetSentState();
-    // Suppress the trailing `input` event that some browsers fire after compositionend
-    requestAnimationFrame(() => { justFinishedComposition = false; });
-  });
 
   // --- Debug logging helper ---
   let _debugSeq = 0;
@@ -1211,133 +1185,185 @@
     const line = document.createElement('div');
     line.style.borderBottom = '1px solid #333';
     line.style.padding = '1px 0';
-    const color = event === 'keydown' ? '#ff0' : event === 'beforeinput' ? '#0ff' : event === 'input' ? '#0f0' : '#f0f';
+    const color = event === 'keydown' ? '#ff0' : event === 'beforeinput' ? '#0ff' : event === 'input' ? '#0f0' : event === 'flush' ? '#f80' : '#f0f';
     line.innerHTML = `<span style="color:#888">${_debugSeq}|${ts}</span> <span style="color:${color}">${event}</span> ${detail}`;
     log.appendChild(line);
     log.scrollTop = log.scrollHeight;
   }
 
-  // beforeinput: catches mobile soft keyboard actions that keydown misses
-  // (when e.key is 'Unidentified'). This fires BEFORE the input value changes.
-  overlayInput.addEventListener('beforeinput', (e) => {
-    _dbg('beforeinput', `type=<b>${e.inputType}</b> data="${e.data}" kdHandled=${keydownHandled} composing=${isComposing} val="${overlayInput.value}" sent="${sentBuffer}"`);
-    if (isComposing) return;
-    if (keydownHandled) return;  // keydown already sent this action
+  /**
+   * InputController -- state-machine-driven mobile input handler
+   *
+   * States:
+   *   IDLE       -- waiting for input
+   *   COMPOSING  -- IME active (compositionstart..compositionend)
+   *   BUFFERING  -- input received, waiting 150ms for autocomplete to settle
+   *   FLUSHING   -- computing diff and sending to terminal
+   */
+  class InputController {
+    constructor(textarea, sendFn) {
+      this.textarea = textarea;
+      this.send = sendFn;
+      this.snapshot = '';
+      this.state = 'IDLE';
+      this.bufferTimer = null;
+      this.BUFFER_MS = 150;
+      this._emptyKeyTs = 0;
+      this._keydownHandled = false;
+      this._ac = new AbortController();
+      const sig = { signal: this._ac.signal };
 
-    if (e.inputType === 'deleteContentBackward') {
-      e.preventDefault();
-      wsSend('\x7f');  // DEL
-      _dbg('ACTION', '<b style="color:#f00">SEND DEL(\\x7f)</b>');
-      // Keep sentBuffer in sync: remove last char
-      sentBuffer = sentBuffer.slice(0, -1);
-      overlayInput.value = overlayInput.value.slice(0, -1);
-    } else if (e.inputType === 'deleteContentForward') {
-      e.preventDefault();
-      wsSend('\x1b[3~');  // Forward delete escape sequence
-      _dbg('ACTION', '<b style="color:#f00">SEND FWD-DEL</b>');
-    } else if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
-      // Suppress soft keyboard Enter — don't send \r.
-      // Terminal Enter is sent exclusively via quick-bar ↵ button.
-      // This eliminates the IME confirmation vs terminal Enter ambiguity.
-      e.preventDefault();
-      resetSentState();
-      _dbg('ACTION', '<b style="color:#f80">BLOCKED soft Enter (use ↵ button)</b>');
-    }
-  });
-
-  overlayInput.addEventListener('input', (e) => {
-    _dbg('input', `type=${e.inputType} data="${e.data}" kdHandled=${keydownHandled} composing=${isComposing} justComp=${justFinishedComposition} val="${overlayInput.value}" sent="${sentBuffer}"`);
-    if (isComposing) return;
-    if (justFinishedComposition) return;
-    if (keydownHandled) { keydownHandled = false; return; }
-
-    // Soft keyboard Enter was already blocked in beforeinput.
-    // If it leaks through, suppress it here too — terminal Enter is via quick-bar ↵ only.
-    if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') {
-      resetSentState();
-      return;
+      textarea.addEventListener('compositionstart', this._onCompositionStart.bind(this), sig);
+      textarea.addEventListener('compositionend', this._onCompositionEnd.bind(this), sig);
+      textarea.addEventListener('beforeinput', this._onBeforeInput.bind(this), sig);
+      textarea.addEventListener('input', this._onInput.bind(this), sig);
+      textarea.addEventListener('keydown', this._onKeydown.bind(this), sig);
     }
 
-    const current = overlayInput.value;
+    _setState(s) { this.state = s; }
 
-    if (current.startsWith(sentBuffer)) {
-      // Normal typing: textarea value grew by appending new chars.
-      // Only send the characters we haven't sent yet.
-      const newChars = current.slice(sentBuffer.length);
-      if (newChars) wsSend(newChars);
-      sentBuffer = current;
-    } else {
-      // Replacement happened (autocomplete suggestion tapped).
-      // The keyboard replaced some/all of the typed text with the suggestion.
-      // We need to undo what we already sent, then send the replacement.
-      //
-      // Find the longest common prefix between sentBuffer and current value
-      // to minimize the number of backspaces needed.
+    _computeDiff() {
+      const prev = this.snapshot;
+      const curr = this.textarea.value;
       let commonLen = 0;
-      const minLen = Math.min(sentBuffer.length, current.length);
-      while (commonLen < minLen && sentBuffer[commonLen] === current[commonLen]) {
-        commonLen++;
+      const minLen = Math.min(prev.length, curr.length);
+      while (commonLen < minLen && prev[commonLen] === curr[commonLen]) commonLen++;
+      return { backspaces: prev.length - commonLen, newText: curr.slice(commonLen) };
+    }
+
+    _flush() {
+      const { backspaces, newText } = this._computeDiff();
+      if (backspaces > 0) {
+        this.send('\x7f'.repeat(backspaces));
+        _dbg('flush', `<b style="color:#f00">DEL x${backspaces}</b>`);
       }
-      // Delete chars after the common prefix that were already sent
-      const charsToDelete = sentBuffer.length - commonLen;
-      for (let i = 0; i < charsToDelete; i++) wsSend('\x7f');
-      // Send the new chars after the common prefix
-      const newPart = current.slice(commonLen);
-      if (newPart) wsSend(newPart);
-      sentBuffer = current;
+      if (newText) {
+        this.send(newText);
+        _dbg('flush', `<b style="color:#0f0">TEXT "${newText}"</b>`);
+      }
+      this.snapshot = this.textarea.value;
+      this._setState('IDLE');
     }
 
-    // Don't clear overlayInput.value — we need it to detect future replacements.
-    // Instead, schedule a deferred reset to prevent unbounded growth.
-    scheduleReset();
-  });
-
-  overlayInput.addEventListener('keydown', (e) => {
-    const _keyChars = [...e.key].map(c => c.charCodeAt(0));
-    _dbg('keydown', `key=<b>"${e.key}"</b> len=${e.key.length} codes=[${_keyChars}] code=${e.code} kc=${e.keyCode} val="${overlayInput.value}" sent="${sentBuffer}"`);
-    if (isComposing) return;
-    keydownHandled = false;
-
-    // On mobile, many keys fire as 'Unidentified' or keyCode 229.
-    // Skip those -- beforeinput will handle them instead.
-    // iOS Chinese IME Enter sends key="\n\r" (codes [10,13]) or key=" " before
-    // a fake Backspace. Detect: keyCode=229 + key is whitespace/newline only.
-    const _isUnidentified = e.key === 'Unidentified' || e.key === 'Process';
-    const _isWhitespaceKey = !_isUnidentified && e.keyCode === 229 && /^[\s\n\r]*$/.test(e.key);
-    if (_isUnidentified || _isWhitespaceKey) {
-      if (_isWhitespaceKey) _emptyKeyTs = Date.now();
-      return;
+    resetSnapshot() {
+      this.snapshot = '';
+      this.textarea.value = '';
+      if (this.bufferTimer) { clearTimeout(this.bufferTimer); this.bufferTimer = null; }
+      this._setState('IDLE');
     }
 
-    if (KEY_MAP[e.key]) {
-      e.preventDefault();
-      wsSend(KEY_MAP[e.key]);
-      keydownHandled = true;
-      _dbg('ACTION', `<b style="color:#f00">KD SEND KEY_MAP[${e.key}]</b>`);
-      // Enter sends \r — reset tracking state since we're starting a new input context
-      if (e.key === 'Enter') resetSentState();
-      return;
+    _startBuffer() {
+      if (this.bufferTimer) clearTimeout(this.bufferTimer);
+      if (this.state !== 'BUFFERING') this._setState('BUFFERING');
+      this.bufferTimer = setTimeout(() => {
+        this.bufferTimer = null;
+        this._setState('FLUSHING');
+        this._flush();
+      }, this.BUFFER_MS);
     }
 
-    if (e.key === 'Backspace') {
-      // iOS Enter sequence: key="" → Backspace within ~10ms. Suppress fake Backspace.
-      if (Date.now() - _emptyKeyTs < 100) { _emptyKeyTs = 0; return; }
-      e.preventDefault();
-      wsSend('\x7f');
-      _dbg('ACTION', '<b style="color:#f00">KD SEND DEL(\\x7f)</b>');
-      // Keep sentBuffer in sync with the deletion
-      sentBuffer = sentBuffer.slice(0, -1);
-      overlayInput.value = overlayInput.value.slice(0, -1);
-      keydownHandled = true;
-    } else if (e.key === 'Delete') {
-      e.preventDefault();
-      wsSend('\x1b[3~');
-      _dbg('ACTION', '<b style="color:#f00">KD SEND FWD-DEL</b>');
-      keydownHandled = true;
+    _onCompositionStart() {
+      isComposing = true;
+      if (this.state === 'BUFFERING') {
+        clearTimeout(this.bufferTimer);
+        this.bufferTimer = null;
+        this._flush();
+      }
+      this._setState('COMPOSING');
     }
-  });
 
-  // File upload handler — reads photo, sends base64 to server, auto-types path into terminal
+    _onCompositionEnd() {
+      isComposing = false;
+      this._startBuffer();
+    }
+
+    _onBeforeInput(e) {
+      if (this.state === 'COMPOSING') return;
+      if (this._keydownHandled) return;
+
+      if (e.inputType === 'deleteContentForward') {
+        e.preventDefault();
+        this.send('\x1b[3~');
+        return;
+      }
+      if (e.inputType === 'insertLineBreak' || e.inputType === 'insertParagraph') {
+        e.preventDefault();
+        this.resetSnapshot();
+        _dbg('ACTION', '<b style="color:#f80">BLOCKED soft Enter (use NL button)</b>');
+        return;
+      }
+      // deleteContentBackward: let browser handle, diff picks it up
+    }
+
+    _onInput(e) {
+      if (this.state === 'COMPOSING') return;
+      if (this._keydownHandled) { this._keydownHandled = false; return; }
+      if (e.inputType === 'insertParagraph' || e.inputType === 'insertLineBreak') return;
+      this._startBuffer();
+    }
+
+    _onKeydown(e) {
+      if (this.state === 'COMPOSING') return;
+      this._keydownHandled = false;
+
+      const _isUnidentified = e.key === 'Unidentified' || e.key === 'Process';
+      const _isWhitespaceKey = !_isUnidentified && e.keyCode === 229 && /^[\s\n\r]*$/.test(e.key);
+      if (_isUnidentified || _isWhitespaceKey) {
+        if (_isWhitespaceKey) this._emptyKeyTs = Date.now();
+        return;
+      }
+
+      if (KEY_MAP[e.key]) {
+        e.preventDefault();
+        if (this.state === 'BUFFERING') {
+          clearTimeout(this.bufferTimer); this.bufferTimer = null; this._flush();
+        }
+        this.send(KEY_MAP[e.key]);
+        this._keydownHandled = true;
+        if (e.key === 'Enter' || e.key === 'Tab') this.resetSnapshot();
+        return;
+      }
+
+      if (e.key === 'Backspace') {
+        if (Date.now() - this._emptyKeyTs < 100) { this._emptyKeyTs = 0; return; }
+        if (e.keyCode !== 229) {
+          e.preventDefault();
+          if (this.state === 'BUFFERING') {
+            clearTimeout(this.bufferTimer); this.bufferTimer = null; this._flush();
+          }
+          this.send('\x7f');
+          this.snapshot = this.snapshot.slice(0, -1);
+          this.textarea.value = this.textarea.value.slice(0, -1);
+          this._keydownHandled = true;
+        }
+        return;
+      }
+
+      if (e.key === 'Delete') {
+        e.preventDefault();
+        this.send('\x1b[3~');
+        this._keydownHandled = true;
+      }
+    }
+
+    destroy() {
+      if (this.bufferTimer) { clearTimeout(this.bufferTimer); this.bufferTimer = null; }
+      this._ac.abort();
+      this.snapshot = '';
+      this.textarea.value = '';
+      this.state = 'IDLE';
+    }
+  }
+
+  // Global InputController instance
+  let inputController = null;
+
+  function initInputController() {
+    if (inputController) inputController.destroy();
+    inputController = new InputController(overlayInput, wsSend);
+  }
+
+  // File upload handler  // File upload handler — reads photo, sends base64 to server, auto-types path into terminal
   document.getElementById('file-upload').addEventListener('change', async (e) => {
     const file = e.target.files[0];
     if (!file) return;

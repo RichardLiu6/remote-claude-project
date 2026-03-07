@@ -42,12 +42,14 @@ No build step. No bundler. `start-claude.sh` is symlinked: `~/start-claude.sh` �
 
 - xterm `disableStdin: true` on mobile; transparent off-screen textarea captures keyboard input
 - Floating quick-bar (Tab/^C/Esc/Select/Done) above keyboard via visualViewport API; uses `mousedown` preventDefault (not `touchstart`) to keep keyboard open without blocking horizontal scroll
-- **Diff-based input model** (replaced three-layer event interception):
-  - `keydown`: only handles clearly identified keys (physical keyboard Enter/arrows/Tab/Esc/Backspace)
-  - `beforeinput`: only handles soft-keyboard Enter (with post-IME 300ms suppression) + edge cases
-  - `input`: pure diff — compares `previousValue` with `textarea.value`, sends backspaces + delta
-  - `compositionend`: records timestamp only; does NOT send text (diff in `input` handles it)
-  - Eliminates IME timing bugs by observing results instead of intercepting individual events
+- **Unified debounce buffer model** (v1 rewrite, replaced immediate-send + sentBuffer):
+  - All input (English, Chinese, autocomplete, soft-keyboard Backspace) goes through 150ms debounce
+  - On debounce expiry, `_flush()` diffs `snapshot` vs `textarea.value`, sends minimal backspaces + new text
+  - `keydown`: special keys (Enter/Tab/Esc/arrows) flush buffer then send immediately; physical Backspace sends immediately
+  - `beforeinput`: only blocks soft-keyboard Enter (terminal Enter via NL button); Backspace/Delete pass through to browser
+  - `compositionstart`: pauses debounce; `compositionend`: resumes debounce (does NOT send directly)
+  - InputController class with 4-state machine (IDLE/COMPOSING/BUFFERING/FLUSHING) + AbortController for leak-free cleanup
+  - No more `sentBuffer`, `scheduleReset()`, `justFinishedComposition`, or 800ms reset timer
 - **Select mode**: overlays a native-selectable `<div>` with terminal buffer text over the canvas (canvas doesn't support native text selection). Quick-bar stays visible in Select mode
 - **Dynamic font sizing**: after `fitAddon.fit()`, if `term.cols < 70`, fontSize auto-reduces (14→10) to fit config screens. Mobile padding reduced to 2px
 
