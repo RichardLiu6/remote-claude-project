@@ -929,9 +929,11 @@
           _longPressTimer = setTimeout(() => {
             _isSelecting = true;
             _selStart = touchToCell(lpX, lpY);
-            overlayInput.blur();
             // Haptic feedback if available
             if (navigator.vibrate) navigator.vibrate(30);
+            // Block xterm.js internal pointer/mouse handlers during selection
+            const screen = container.querySelector('.xterm-screen');
+            if (screen) screen.style.pointerEvents = 'none';
             // Select initial character
             if (_selStart && term) {
               term.select(_selStart.col, _selStart.row, 1);
@@ -946,6 +948,7 @@
 
         // If selecting, extend selection instead of scrolling
         if (_isSelecting) {
+          e.stopPropagation(); // Prevent xterm.js from overriding our selection
           const cell = touchToCell(e.touches[0].clientX, e.touches[0].clientY);
           if (cell && _selStart) {
             selectRange(_selStart, cell);
@@ -981,13 +984,17 @@
         }
       }, { passive: true, capture: true, signal: touchSignal });
 
-      document.addEventListener('touchend', () => {
+      document.addEventListener('touchend', (e) => {
         cancelLongPress();
 
         // If was selecting, auto-copy and finish
         if (_isSelecting) {
+          e.stopPropagation(); // Prevent xterm.js from clearing our selection
           _isSelecting = false;
           _selStart = null;
+          // Restore pointer events on xterm screen
+          const screen = container.querySelector('.xterm-screen');
+          if (screen) screen.style.pointerEvents = '';
           const sel = term ? term.getSelection() : '';
           if (sel) {
             navigator.clipboard.writeText(sel).catch(() => {});
