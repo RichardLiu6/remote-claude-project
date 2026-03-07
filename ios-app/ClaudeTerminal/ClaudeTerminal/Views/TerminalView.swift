@@ -11,22 +11,33 @@ import SwiftTerm
 ///   - Connection status indicator (green/yellow/red)
 ///   - Haptic feedback (bell, connect/disconnect, quick-bar)
 ///   - Safe area adaptation (notch, home indicator, landscape)
+///
+/// v4 additions:
+///   - NWPathMonitor network awareness (auto-reconnect on WiFi/Cellular change)
+///   - Foreground/background reconnect via scenePhase
+///   - Session switcher without leaving terminal
+///   - External keyboard detection (hide quick-bar)
 struct TerminalView: View {
-    let sessionName: String
+    @State var sessionName: String
     let serverConfig: ServerConfig
 
     @StateObject private var wsManager: WebSocketManager
     @StateObject private var voiceManager: VoiceManager
     @StateObject private var notificationManager = NotificationManager()
+    @StateObject private var networkMonitor = NetworkMonitor()
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.scenePhase) private var scenePhase
     @State private var showDisconnectAlert = false
     @State private var showClipboardMenu = false
     @State private var macClipboardContent: String?
     @State private var inScrollMode = false
     @State private var disconnectAlertReason: DisconnectReason = .none
+    @State private var showSessionSwitcher = false
+    @State private var availableSessions: [TmuxSession] = []
+    @State private var hasExternalKeyboard = false
 
     init(sessionName: String, serverConfig: ServerConfig) {
-        self.sessionName = sessionName
+        self._sessionName = State(initialValue: sessionName)
         self.serverConfig = serverConfig
         _wsManager = StateObject(wrappedValue: WebSocketManager(config: serverConfig))
         _voiceManager = StateObject(wrappedValue: VoiceManager(config: serverConfig))
@@ -48,13 +59,13 @@ struct TerminalView: View {
                 )
                 .ignoresSafeArea(.keyboard, edges: .bottom)
 
-                // Quick-key bar above keyboard
-                InputAccessoryBar { action in
+                // Quick-key bar above keyboard (hidden when external keyboard connected)
+                InputAccessoryBar(onKey: { action in
                     // Light haptic on quick-bar button press
                     let generator = UIImpactFeedbackGenerator(style: .light)
                     generator.impactOccurred()
                     wsManager.sendInput(action.ansiSequence)
-                }
+                }, isHidden: hasExternalKeyboard)
                 .padding(.bottom, geometry.safeAreaInsets.bottom)
             }
             .padding(.leading, geometry.safeAreaInsets.leading)
@@ -67,6 +78,9 @@ struct TerminalView: View {
             voiceManager.setSession(sessionName)
             notificationManager.setSession(sessionName)
             notificationManager.requestPermission()
+
+            // Save last session for quick-launch on next app start
+            UserDefaults.standard.set(sessionName, forKey: "last_session_name")
 
             wsManager.onSessionEnded = {
                 disconnectAlertReason = .sessionEnded
@@ -91,10 +105,37 @@ struct TerminalView: View {
                     break
                 }
             }
+
+            // v4: Network monitor — auto-reconnect on network change
+            networkMonitor.onNetworkRestored = { [weak wsManager] in
+                guard let ws = wsManager else { return }
+                if !ws.connectionState.isConnected {
+                    print("[network] triggering reconnect after network restored")
+                    ws.reconnect()
+                }
+            }
+            networkMonitor.onNetworkLost = { [weak wsManager] in
+                print("[network] network lost, WebSocket will detect on next receive")
+                _ = wsManager // suppress warning
+            }
+
+            // v4: External keyboard detection
+            setupExternalKeyboardDetection()
         }
         .onDisappear {
             wsManager.disconnect()
             voiceManager.stop()
+            networkMonitor.stopMonitoring()
+        }
+        // v4: Foreground/background reconnect
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                // App came to foreground — check WebSocket and reconnect if needed
+                if !wsManager.connectionState.isConnected {
+                    print("[lifecycle] app returned to foreground, reconnecting...")
+                    wsManager.reconnect()
+                }
+            }
         }
         .alert(alertTitle, isPresented: $showDisconnectAlert) {
             if disconnectAlertReason == .sessionEnded {
@@ -126,7 +167,55 @@ struct TerminalView: View {
         } message: {
             Text("Choose clipboard source")
         }
+        // v4: Session switcher sheet
+        .sheet(isPresented: $showSessionSwitcher) {
+            SessionSwitcherSheet(
+                currentSession: sessionName,
+                sessions: availableSessions,
+                onSelect: { newSession in
+                    switchToSession(newSession)
+                }
+            )
+            .presentationDetents([.medium])
+        }
         .statusBarHidden(true)
+    }
+
+    // MARK: - Session switching
+
+    private func switchToSession(_ newSessionName: String) {
+        guard newSessionName != sessionName else { return }
+        wsManager.disconnect()
+        sessionName = newSessionName
+        voiceManager.setSession(newSessionName)
+        notificationManager.setSession(newSessionName)
+        UserDefaults.standard.set(newSessionName, forKey: "last_session_name")
+        wsManager.connect(session: newSessionName)
+    }
+
+    // MARK: - External keyboard detection
+
+    private func setupExternalKeyboardDetection() {
+        // Monitor keyboard show/hide to detect external keyboard
+        NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillShowNotification,
+            object: nil,
+            queue: .main
+        ) { notification in
+            if let frame = notification.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect {
+                // External keyboard: keyboard frame height is very small (just the input bar)
+                // Software keyboard: typically > 200pt
+                hasExternalKeyboard = frame.height < 100
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: UIResponder.keyboardWillHideNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            // When keyboard hides, reset — show quick bar again when soft keyboard returns
+            hasExternalKeyboard = false
+        }
     }
 
     // MARK: - Alert content
@@ -174,35 +263,59 @@ struct TerminalView: View {
                     .foregroundColor(.gray)
             }
 
-            VStack(alignment: .leading, spacing: 1) {
-                Text(sessionName)
-                    .font(.system(.subheadline, design: .monospaced))
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-
-                HStack(spacing: 4) {
-                    // Connection status indicator
-                    connectionStatusDot
-
-                    if let error = wsManager.connectionError {
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundColor(.orange)
-                            .lineLimit(1)
-                    } else {
-                        Text(wsManager.connectionState.statusText)
-                            .font(.caption2)
-                            .foregroundColor(connectionStatusTextColor)
+            // v4: Tappable session name for quick switching
+            Button {
+                Task {
+                    availableSessions = (try? await WebSocketManager.fetchSessions(config: serverConfig)) ?? []
+                    showSessionSwitcher = true
+                }
+            } label: {
+                VStack(alignment: .leading, spacing: 1) {
+                    HStack(spacing: 4) {
+                        Text(sessionName)
+                            .font(.system(.subheadline, design: .monospaced))
+                            .fontWeight(.semibold)
+                            .foregroundColor(.white)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 8, weight: .bold))
+                            .foregroundColor(.gray)
                     }
 
-                    if inScrollMode {
-                        Text("SCROLL")
-                            .font(.system(size: 9, weight: .bold, design: .monospaced))
-                            .foregroundColor(.black)
-                            .padding(.horizontal, 4)
-                            .padding(.vertical, 1)
-                            .background(Color.yellow)
-                            .cornerRadius(3)
+                    HStack(spacing: 4) {
+                        // Connection status indicator
+                        connectionStatusDot
+
+                        if let error = wsManager.connectionError {
+                            Text(error)
+                                .font(.caption2)
+                                .foregroundColor(.orange)
+                                .lineLimit(1)
+                        } else {
+                            Text(wsManager.connectionState.statusText)
+                                .font(.caption2)
+                                .foregroundColor(connectionStatusTextColor)
+                        }
+
+                        // v4: Network type indicator
+                        if !networkMonitor.isConnected {
+                            Text("NO NET")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.red)
+                                .cornerRadius(3)
+                        }
+
+                        if inScrollMode {
+                            Text("SCROLL")
+                                .font(.system(size: 9, weight: .bold, design: .monospaced))
+                                .foregroundColor(.black)
+                                .padding(.horizontal, 4)
+                                .padding(.vertical, 1)
+                                .background(Color.yellow)
+                                .cornerRadius(3)
+                        }
                     }
                 }
             }
@@ -794,6 +907,73 @@ class IMETextField: UITextField, UITextFieldDelegate {
         let controlCode = Int(char.asciiValue ?? 0) - Int(Character("a").asciiValue ?? 0) + 1
         if controlCode >= 1 && controlCode <= 26 {
             onSpecialKey?(String(UnicodeScalar(controlCode)!))
+        }
+    }
+}
+
+// MARK: - Session Switcher Sheet (v4)
+
+/// A half-sheet that lets the user switch tmux sessions without leaving the terminal.
+/// Tap a different session to disconnect current and connect to the new one.
+private struct SessionSwitcherSheet: View {
+    let currentSession: String
+    let sessions: [TmuxSession]
+    var onSelect: (String) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    var body: some View {
+        NavigationStack {
+            List(sessions) { session in
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "terminal.fill")
+                                .foregroundColor(session.name == currentSession ? .green : .gray)
+                            Text(session.name)
+                                .font(.system(.body, design: .monospaced))
+                                .fontWeight(session.name == currentSession ? .bold : .medium)
+                                .foregroundColor(.white)
+                        }
+                        HStack(spacing: 12) {
+                            Label("\(session.windows) window\(session.windows == 1 ? "" : "s")",
+                                  systemImage: "rectangle.split.3x1")
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                            Text(session.createdDescription)
+                                .font(.caption)
+                                .foregroundColor(.gray)
+                        }
+                    }
+                    Spacer()
+                    if session.name == currentSession {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                    }
+                }
+                .padding(.vertical, 4)
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    if session.name != currentSession {
+                        dismiss()
+                        onSelect(session.name)
+                    }
+                }
+                .listRowBackground(
+                    session.name == currentSession
+                        ? Color(red: 0.1, green: 0.2, blue: 0.15)
+                        : Color(red: 0.09, green: 0.13, blue: 0.24)
+                )
+            }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .background(Color(red: 0.1, green: 0.1, blue: 0.18))
+            .navigationTitle("Switch Session")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Done") { dismiss() }
+                }
+            }
         }
     }
 }
