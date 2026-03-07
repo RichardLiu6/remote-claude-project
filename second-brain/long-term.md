@@ -10,8 +10,10 @@
 - **不能默认 both**：local 通道的 afplay 始终在 Mac 执行，手机远端操作时 Mac 会无故出声
 - [设计文档](../docs/plans/2026-03-07-voice-refactor-design.md)
 
-## Claude Code 自动化（03-04 搭建）
-- 2 hooks: PostToolUse `node --check` + PreToolUse 关键文件保护
+## Claude Code 自动化（03-07 更新）
+- 4 hooks: PostToolUse `node --check`(.js) + `xcodebuild`(.swift) + PreToolUse 关键文件保护 + Stop `ios-app-test.sh`
+- iOS App 测试链：编辑→编译检查(10-30s) / Stop→完整测试(编译+结构+安装模拟器+启动验证)
+- Stop hook 智能跳过：`stop_hook_active` 防递归 + `git diff` 仅 swift 变更时触发
 - 2 skills: `mobile-input-debug`（IME 调试）+ `server-restart`（开发重启）
 - 1 agent: `mobile-ux-reviewer`（移动端 UX 检查清单）
 - 1 MCP: Playwright（浏览器自动化测试）
