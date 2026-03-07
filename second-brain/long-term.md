@@ -1,9 +1,12 @@
 # Long-term Notes
 
-## 语音系统架构
-- Flag 文件 per-session 控制生成，broadcastVoice() 全 WS 客户端广播
-- 非 tmux 环境直接 exit 0，不触发语音（#17 已完成）
-- 链路：speaker 按钮 → flag 文件 → voice-inject.sh → CC 生成 tag → voice-push.sh → POST /voice-event → edge-tts → WS broadcast
+## 语音系统架构（03-07 重构）
+- 标识符：CC session_id（替代 tmux session 名，支持任意环境）
+- 双通道：voice-local-{id}（afplay 本地播放）+ voice-web-{id}（WS 广播到浏览器）
+- 开关：统一 `/voice` skill（local/web/both/off），默认 both
+- 链路：/voice 创建 flag → voice-inject.sh 检查 flag 注入指令 → CC 生成 tag → voice-push.sh 路由到 afplay / POST server
+- session_id 通过 hook stdin JSON 获取，每次 UserPromptSubmit 写入 ~/.claude/current-session-id 供 skill 读取
+- [设计文档](../docs/plans/2026-03-07-voice-refactor-design.md)
 
 ## Claude Code 自动化（03-04 搭建）
 - 2 hooks: PostToolUse `node --check` + PreToolUse 关键文件保护

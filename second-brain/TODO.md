@@ -1,5 +1,10 @@
 # TODO
 
+## #18 [03-07] 语音系统重构后验证 — ✅
+- /voice skill 真机测试（local / web / both / off）— 通过
+- 手机 Web Terminal 确认 WS 语音播放正常（speaker 按钮已移除）
+- 电脑 Cursor/Terminal 确认 afplay 本地播放正常
+
 ## #14 [03-04] 移动端滑动+选中统一交互 — ⬜
 - 合并 #12（滑动历史）+ #13（文本选择）
 - touch scroll 已实现（03-04 commit），待真机验证
