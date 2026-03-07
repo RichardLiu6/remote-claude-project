@@ -849,11 +849,13 @@
         if (_momentumRAF) { cancelAnimationFrame(_momentumRAF); _momentumRAF = null; }
       };
 
-      // Non-linear: small delta → precise, large delta → fast scan
+      // Non-linear acceleration: small swipe = precise, large swipe = rapid
+      // Apple-inspired: pow curve with tuned divisor
       const accelLines = (px) => {
         const abs = Math.abs(px);
-        // Power curve: exponent 1.5 amplifies larger movements
-        const scaled = Math.pow(abs / 8, 1.5);
+        if (abs < 3) return 0;
+        // pow(x, 1.6): slightly more aggressive than 1.5 for bigger swipes
+        const scaled = Math.pow(abs / 6, 1.6);
         return Math.max(1, Math.round(scaled)) * Math.sign(px);
       };
 
@@ -861,13 +863,12 @@
         stopMomentum();
         let v = _velocity;
         let lastSend = performance.now();
-        const decay = 0.90;
+        const decay = 0.95; // Apple native = 0.95/frame, gives ~800ms coast
         const step = () => {
           v *= decay;
-          if (Math.abs(v) < 3) return;
+          if (Math.abs(v) < 2) return;
           const now = performance.now();
-          if (now - lastSend > 60) {
-            // Use same accel curve: px velocity → non-linear line count
+          if (now - lastSend > 50) {
             const lines = Math.abs(accelLines(v));
             if (lines < 1) return;
             const dir = v > 0 ? 'up' : 'down';
@@ -901,12 +902,12 @@
           _velocity = Math.max(-80, Math.min(80, _velocity)); // clamp raw px velocity
           _touchStartY = e.touches[0].clientY;
           _lastMoveTime = now;
-          // Throttle: flush at most every 50ms
+          // Throttle: flush at most every 40ms (~25fps command rate)
           if (!_scrollThrottleTimer) {
             _scrollThrottleTimer = setTimeout(() => {
               flushScroll();
               _scrollThrottleTimer = null;
-            }, 50);
+            }, 40);
           }
         }
       }, { passive: true, capture: true });
