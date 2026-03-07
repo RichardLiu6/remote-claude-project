@@ -24,5 +24,18 @@
 ## #7 [—] iMessage D2：AppleScript 文字入口 — ⬜
 - [setup-guide#D2](../docs/remote-claude-setup-guide.md#d2imessage文字为主mac-原生)
 
-## #16 [03-04] 原生 iOS App：SwiftUI + SwiftTerm — ⬜
-- [方案文档](../docs/ios-native-app-plan.md)
+## #16 [03-07] 原生 iOS App：SwiftUI + SwiftTerm — 🔄
+- v1-v5 已完成，用户评分 5.5→7.5→8.5→v5待评
+- v5: TerminalView 拆分、fetchSessions 安全修复、文件上传、横屏优化
+- v6（最终版）待 v5 评审后启动
+- [评审文档](../docs/ios-app-user-review-v4.md)
+
+## #22 [03-07] 移动端输入系统 v3 重写 — ✅
+- InputController 状态机 + 150ms debounce + snapshot diff
+- 用户评分 6.7→6.8→7.7（架构级改善）
+- [v3 用户评价](../docs/input-user-review-v3.md) | [v3 PM 终版](../docs/input-pm-assessment-v3.md)
+
+## #23 [03-07] 多渠道消息 Agent 框架 — ⬜
+- WeCom + Lark + Minimax API 统一 Agent
+- [统一框架文档](../docs/unified-agent-framework.md)
+- iMessage/WeChat/Lark 集成方案已完成

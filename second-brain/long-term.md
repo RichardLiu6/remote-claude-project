@@ -23,7 +23,25 @@
 - 手势分流：短滑=滚动 / 长按=选中(待实现) / 点按=键盘
 - 详见 skill `tmux-xterm-scroll`
 
-## 移动端输入模型
-- Diff-based：观察结果（textarea value diff）而非拦截事件
-- 四层协作：keydown（物理键）→ beforeinput（软 Enter）→ input（diff 核心）→ compositionend（时间戳）
+## 移动端输入模型（03-07 v3 重写）
+- v3 架构：InputController 状态机（IDLE→COMPOSING→BUFFERING→FLUSHING）
+- 150ms 统一 debounce buffer 替代逐字符发送 + sentBuffer
+- snapshot diff：compositionend 不再全量发送，只发增量
+- AbortController 管理事件监听器，session 切换时一次性清理
+- 评分趋势 6.7→6.8→7.7，核心改善：软 Enter 恢复、Tab 补全后同步、中文不重复
+- 遗留：document 级 touch listener 泄漏（不在 InputController 管辖内）
 - 详见 skill `mobile-input-debug`
+
+## Agent Team 迭代模式（03-07 建立）
+- 每版本 3 人团队：engineer（worktree 隔离）+ user（10 维评分）+ PM（RICE 分析）
+- 反馈链：v(N) user/PM 反馈注入 v(N+1) engineer prompt
+- iOS App 6 版本迭代：5.5→7.5→8.5→...
+- Input 系统 3 版本迭代：6.7→6.8→7.7
+- 详见 skill `agent-team-iteration`
+
+## 多渠道消息 Agent（03-07 研究）
+- OpenClaw 三层架构：Channel Adapter → Gateway → Agent Runtime
+- 推荐方案：WeCom（企业微信）+ Lark（飞书）双通道
+- LLM：Minimax API（api.minimax.io/v1，OpenAI 兼容，MiniMax-M2.5）
+- iMessage 可行但受限（chat.db polling + AppleScript）
+- [统一框架文档](../docs/unified-agent-framework.md)
