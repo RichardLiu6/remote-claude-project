@@ -123,33 +123,6 @@ app.get('/voice-event', (req, res) => {
   res.json(lastVoiceEvent || { text: null });
 });
 
-// --- Voice toggle API (per-session) ---
-function voiceFlagPath(session) {
-  if (session) {
-    return path.join(os.homedir(), '.claude', `voice-mode-${session}`);
-  }
-  // Fallback to global flag for backward compat
-  return path.join(os.homedir(), '.claude', 'voice-mode');
-}
-
-app.get('/api/voice-status', (req, res) => {
-  const session = req.query.session || '';
-  res.json({ enabled: fs.existsSync(voiceFlagPath(session)) });
-});
-
-app.post('/api/voice-toggle', (req, res) => {
-  const { session, enabled } = req.body;
-  const flagPath = voiceFlagPath(session || '');
-  try {
-    if (enabled) {
-      fs.writeFileSync(flagPath, '');
-    } else {
-      fs.unlinkSync(flagPath);
-    }
-  } catch {}
-  res.json({ enabled: fs.existsSync(flagPath) });
-});
-
 // --- Clipboard bridge (Mac pbpaste → phone browser) ---
 app.get('/api/clipboard', (req, res) => {
   try {

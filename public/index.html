@@ -351,13 +351,11 @@
   }
 
   // --- Voice playback ---
-  let voiceEnabled = true;
   let audioUnlocked = false;
   const voicePlayer = document.createElement('audio');
   voicePlayer.setAttribute('playsinline', '');
   voicePlayer.setAttribute('preload', 'auto');
   document.body.appendChild(voicePlayer); // Must be in DOM for Chrome mobile
-  let _speakerBtnRef = null; // set in buildQuickBar
   let _uploadBtnRef = null;  // set in buildQuickBar
   let _pendingVoiceUrl = null; // store URL if play blocked
 
@@ -389,12 +387,6 @@
 
   function handleVoiceEvent(payload) {
     if (!payload.url) return;
-    // Flash speaker button to show voice arrived
-    if (_speakerBtnRef) {
-      _speakerBtnRef.style.background = '#4a4';
-      setTimeout(() => { _speakerBtnRef.style.background = ''; }, 800);
-    }
-    if (!voiceEnabled) return;
     voicePlayer.src = payload.url;
     voicePlayer.play().then(() => { audioUnlocked = true; }).catch(() => {
       // If blocked, store for next user tap
@@ -580,31 +572,6 @@
     });
     quickBar.appendChild(uploadBtn);
 
-    // Speaker toggle — mute/unmute voice playback
-    const speakerBtn = document.createElement('button');
-    speakerBtn.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
-    speakerBtn.setAttribute('aria-label', 'Toggle voice playback');
-    _speakerBtnRef = speakerBtn;
-    speakerBtn.addEventListener('mousedown', (e) => { e.preventDefault(); });
-    speakerBtn.addEventListener('click', async () => {
-      voiceEnabled = !voiceEnabled;
-      speakerBtn.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
-      speakerBtn.style.opacity = voiceEnabled ? '1' : '0.5';
-      unlockAudio();
-      if (!voiceEnabled) { voicePlayer.pause(); }
-      // Sync per-session voice flag to server
-      if (currentSession) {
-        try {
-          await fetch('/api/voice-toggle', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ session: currentSession, enabled: voiceEnabled })
-          });
-        } catch {}
-      }
-    });
-    quickBar.appendChild(speakerBtn);
-
     // Debug button — toggles event debug overlay for diagnosing input issues
     const debugBtn = document.createElement('button');
     debugBtn.textContent = 'Debug';
@@ -695,17 +662,6 @@
       if (term) {
         ws.send('\x01resize:' + JSON.stringify({ cols: term.cols, rows: term.rows }));
       }
-      // Sync voice status from server for this session
-      fetch('/api/voice-status?session=' + encodeURIComponent(session))
-        .then(r => r.json())
-        .then(data => {
-          voiceEnabled = data.enabled;
-          if (_speakerBtnRef) {
-            _speakerBtnRef.textContent = voiceEnabled ? '\u{1F50A}' : '\u{1F507}';
-            _speakerBtnRef.style.opacity = voiceEnabled ? '1' : '0.5';
-          }
-        })
-        .catch(() => {});
     };
 
     ws.onmessage = (e) => {
