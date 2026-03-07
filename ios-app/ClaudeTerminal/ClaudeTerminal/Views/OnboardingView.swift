@@ -8,6 +8,8 @@ struct OnboardingView: View {
     @State private var currentPage = 0
     @State private var tailscaleIP: String = ServerConfig.defaultHost
     @State private var tailscalePort: String = String(ServerConfig.defaultPort)
+    /// v6: Connection test state
+    @State private var connectionTestState: ConnectionTestState = .idle
 
     private let pages: [OnboardingPage] = [
         OnboardingPage(
@@ -117,72 +119,33 @@ struct OnboardingView: View {
         }
     }
 
-    // MARK: - Page content
-
     private func pageContent(_ page: OnboardingPage) -> some View {
         VStack(spacing: 24) {
-            // Icon
-            Image(systemName: page.icon)
-                .font(.system(size: 72, weight: .thin))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [page.iconColor, page.iconColor.opacity(0.6)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(height: 100)
-
-            // Title
+            onboardingIcon(page.icon, color: page.iconColor)
             VStack(spacing: 6) {
-                Text(page.title)
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                Text(page.subtitle)
-                    .font(.system(.subheadline, weight: .medium))
-                    .foregroundColor(.purple.opacity(0.8))
+                Text(page.title).font(.system(size: 32, weight: .bold, design: .rounded)).foregroundColor(.white)
+                Text(page.subtitle).font(.system(.subheadline, weight: .medium)).foregroundColor(.purple.opacity(0.8))
             }
-
-            // Description
-            Text(page.description)
-                .font(.system(.body))
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                .lineSpacing(4)
+            Text(page.description).font(.body).foregroundColor(.gray)
+                .multilineTextAlignment(.center).padding(.horizontal, 40).lineSpacing(4)
         }
     }
 
-    // MARK: - Configuration page
+    private func onboardingIcon(_ name: String, color: Color) -> some View {
+        Image(systemName: name).font(.system(size: 72, weight: .thin))
+            .foregroundStyle(LinearGradient(colors: [color, color.opacity(0.6)], startPoint: .topLeading, endPoint: .bottomTrailing))
+            .frame(height: 100)
+    }
 
     private var configPage: some View {
         VStack(spacing: 24) {
-            Image(systemName: "gear.circle.fill")
-                .font(.system(size: 72, weight: .thin))
-                .foregroundStyle(
-                    LinearGradient(
-                        colors: [.orange, .orange.opacity(0.6)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(height: 100)
-
+            onboardingIcon("gear.circle.fill", color: .orange)
             VStack(spacing: 6) {
-                Text("Setup")
-                    .font(.system(size: 32, weight: .bold, design: .rounded))
-                    .foregroundColor(.white)
-                Text("Configure Your Server")
-                    .font(.system(.subheadline, weight: .medium))
-                    .foregroundColor(.orange.opacity(0.8))
+                Text("Setup").font(.system(size: 32, weight: .bold, design: .rounded)).foregroundColor(.white)
+                Text("Configure Your Server").font(.system(.subheadline, weight: .medium)).foregroundColor(.orange.opacity(0.8))
             }
-
             Text("Enter your Mac's Tailscale IP address. You can change this later in Settings.")
-                .font(.system(.body))
-                .foregroundColor(.gray)
-                .multilineTextAlignment(.center)
-                .padding(.horizontal, 40)
-                .lineSpacing(4)
+                .font(.body).foregroundColor(.gray).multilineTextAlignment(.center).padding(.horizontal, 40).lineSpacing(4)
 
             VStack(spacing: 12) {
                 HStack {
@@ -212,8 +175,50 @@ struct OnboardingView: View {
                 .padding()
                 .background(Color(red: 0.12, green: 0.12, blue: 0.18))
                 .cornerRadius(12)
+
+                // v6: Test Connection button
+                Button { testConnection() } label: {
+                    HStack(spacing: 8) {
+                        connectionTestIcon
+                        Text(connectionTestState.label)
+                            .font(.system(.subheadline, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(connectionTestState.bgColor)
+                    .cornerRadius(12)
+                }
+                .disabled(connectionTestState == .testing)
             }
             .padding(.horizontal, 40)
+        }
+    }
+
+    // MARK: - v6: Connection test
+
+    @ViewBuilder
+    private var connectionTestIcon: some View {
+        switch connectionTestState {
+        case .idle: Image(systemName: "bolt.circle")
+        case .testing: ProgressView().tint(.white)
+        case .success: Image(systemName: "checkmark.circle.fill")
+        case .failed: Image(systemName: "xmark.circle.fill")
+        }
+    }
+
+    private func testConnection() {
+        connectionTestState = .testing
+        let host = tailscaleIP.trimmingCharacters(in: .whitespaces)
+        let port = Int(tailscalePort) ?? ServerConfig.defaultPort
+        let config = ServerConfig(host: host, port: port)
+        Task {
+            do {
+                _ = try await WebSocketManager.fetchSessions(config: config)
+                await MainActor.run { connectionTestState = .success }
+            } catch {
+                await MainActor.run { connectionTestState = .failed }
+            }
         }
     }
 
@@ -242,4 +247,27 @@ private struct OnboardingPage {
     let title: String
     let subtitle: String
     let description: String
+}
+
+/// v6: Connection test states for onboarding.
+enum ConnectionTestState: Equatable {
+    case idle, testing, success, failed
+
+    var label: String {
+        switch self {
+        case .idle: return "Test Connection"
+        case .testing: return "Testing..."
+        case .success: return "Connected!"
+        case .failed: return "Failed - Check IP"
+        }
+    }
+
+    var bgColor: Color {
+        switch self {
+        case .idle: return Color(red: 0.2, green: 0.2, blue: 0.35)
+        case .testing: return Color(red: 0.2, green: 0.2, blue: 0.35)
+        case .success: return Color(red: 0.15, green: 0.45, blue: 0.2)
+        case .failed: return Color(red: 0.5, green: 0.15, blue: 0.15)
+        }
+    }
 }
