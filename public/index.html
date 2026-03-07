@@ -831,34 +831,73 @@
       let _scrollThrottleTimer = null;
       let _pendingScroll = 0;
       let _inScrollMode = false;
+      // Momentum state
+      let _lastMoveTime = 0;
+      let _velocity = 0;
+      let _momentumRAF = null;
 
       const flushScroll = () => {
         if (_pendingScroll === 0) return;
         const dir = _pendingScroll > 0 ? 'up' : 'down';
-        const n = Math.abs(_pendingScroll);
+        const n = Math.min(Math.abs(_pendingScroll), 50);
         wsSend('\x01scroll:' + dir + ':' + n);
         _inScrollMode = true;
         _pendingScroll = 0;
       };
 
+      const stopMomentum = () => {
+        if (_momentumRAF) { cancelAnimationFrame(_momentumRAF); _momentumRAF = null; }
+      };
+
+      const startMomentum = () => {
+        stopMomentum();
+        let v = _velocity;
+        let lastSend = performance.now();
+        const decay = 0.92;
+        const step = () => {
+          v *= decay;
+          if (Math.abs(v) < 0.3) return; // stop threshold
+          const now = performance.now();
+          // Throttle server sends to ~60ms in momentum
+          if (now - lastSend > 60) {
+            const lines = Math.max(1, Math.round(Math.abs(v)));
+            const dir = v > 0 ? 'up' : 'down';
+            wsSend('\x01scroll:' + dir + ':' + lines);
+            lastSend = now;
+          }
+          _momentumRAF = requestAnimationFrame(step);
+        };
+        _momentumRAF = requestAnimationFrame(step);
+      };
+
       document.addEventListener('touchstart', (e) => {
         _touchStartY = e.touches[0].clientY;
         _touchMoved = false;
+        _lastMoveTime = performance.now();
+        _velocity = 0;
+        stopMomentum();
       }, { passive: true, capture: true });
 
       document.addEventListener('touchmove', (e) => {
         const deltaY = _touchStartY - e.touches[0].clientY;
         if (Math.abs(deltaY) > 5) {
           _touchMoved = true;
-          // Accumulate scroll lines (positive = up, negative = down)
-          _pendingScroll += Math.round(deltaY / 15);
+          const now = performance.now();
+          const dt = now - _lastMoveTime || 16;
+          // Natural scroll: finger up (deltaY > 0) → scroll UP (see older = tmux scroll-up)
+          // INVERTED for iOS natural feel: finger up → content moves up → see newer → scroll-down
+          _pendingScroll += Math.round(-deltaY / 10);
+          // Track velocity for momentum (lines per 16ms frame)
+          _velocity = (-deltaY / 10) / (dt / 16);
+          _velocity = Math.max(-15, Math.min(15, _velocity)); // clamp
           _touchStartY = e.touches[0].clientY;
-          // Throttle: flush at most every 80ms
+          _lastMoveTime = now;
+          // Throttle: flush at most every 50ms
           if (!_scrollThrottleTimer) {
             _scrollThrottleTimer = setTimeout(() => {
               flushScroll();
               _scrollThrottleTimer = null;
-            }, 80);
+            }, 50);
           }
         }
       }, { passive: true, capture: true });
@@ -870,7 +909,12 @@
           _scrollThrottleTimer = null;
         }
         flushScroll();
+        // Start momentum if velocity is significant
+        if (_touchMoved && Math.abs(_velocity) > 0.5) {
+          startMomentum();
+        }
         if (!_touchMoved) {
+          stopMomentum();
           // Tap: exit copy-mode and open keyboard
           if (_inScrollMode) {
             wsSend('\x01scroll:exit');
