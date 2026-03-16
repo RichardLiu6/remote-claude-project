@@ -2,7 +2,12 @@
 <html lang="zh-CN">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="theme-color" content="#1a1a2e">
+  <link rel="manifest" href="/manifest.json">
   <title>Claude Remote Terminal</title>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.min.css">
   <style>
@@ -20,6 +25,9 @@
       position: fixed;
       width: 100%;
       overscroll-behavior: none;
+      /* Safe area for standalone PWA (notch + home indicator) */
+      padding-top: env(safe-area-inset-top);
+      padding-bottom: env(safe-area-inset-bottom);
     }
 
     /* Top bar */
@@ -114,10 +122,11 @@
     #overlay-input {
       position: fixed;
       bottom: 0;
-      left: -9999px;
-      width: 1px;
+      left: 0;
+      width: 100%;
       height: 1px;
       opacity: 0.01;
+      pointer-events: none;  /* Don't intercept taps when collapsed */
       background: rgba(15, 52, 96, 0.85);
       color: #c8d8f0;
       border: none;
@@ -132,16 +141,10 @@
       -webkit-appearance: none;
       display: none; /* Shown on mobile after connect */
     }
+    /* input-visible class no longer used — textarea stays invisible,
+       keyboard input still captured via focus(). Kept class for compat. */
     #overlay-input.input-visible {
-      left: 0;
-      right: 0;
-      width: 100%;
-      height: 36px;
-      opacity: 1;
-      padding: 8px 12px;
-    }
-    #overlay-input::placeholder {
-      color: rgba(160, 196, 255, 0.45);
+      /* Intentionally same as default — no visual change */
     }
 
     /* Floating quick-bar (above keyboard on mobile) */
@@ -663,25 +666,15 @@
       quickBar.style.bottom = kbHeight + 'px';
       const qbH = quickBar.offsetHeight || 44;
 
-      // Show input bar above quick-bar (below terminal), hide if in scroll mode
-      if (isMobile && !_inScrollMode) {
-        overlayInput.classList.add('input-visible');
-        overlayInput.style.bottom = (kbHeight + qbH) + 'px';
-      } else {
-        overlayInput.classList.remove('input-visible');
-      }
-      const inputH = (!_inScrollMode && isMobile) ? 36 : 0;
-
+      // Input bar is always invisible (textarea stays 1px for keyboard capture)
       const topbarH = document.getElementById('topbar').offsetHeight || 48;
       const statusH = document.getElementById('status').offsetHeight || 20;
-      // Explicit height = viewport minus topbar/status minus input-bar minus quick-bar
-      container.style.height = (vvh - topbarH - statusH - qbH - inputH) + 'px';
+      container.style.height = (vvh - topbarH - statusH - qbH) + 'px';
       container.style.flex = 'none';
     } else {
-      // Keyboard is closed — restore flex layout, hide input bar
+      // Keyboard is closed — restore flex layout
       _keyboardOpen = false;
       quickBar.style.display = 'none';
-      overlayInput.classList.remove('input-visible');
       container.style.height = '';
       container.style.flex = '1';
     }
@@ -790,6 +783,10 @@
     if (isMobile) {
       overlayInput.style.display = 'block';
       buildQuickBar();
+      // Recreate InputController (destroyed by cleanupConnection on session switch)
+      if (!window._inputController) {
+        window._inputController = new InputController(overlayInput, wsSend);
+      }
     }
     sessionSelect.value = session;
 
@@ -931,11 +928,14 @@
         term.select(s.col, s.row, length);
       }
 
+      let _touchInTerminal = false;  // Only allow scroll when touch starts in terminal area
+
       document.addEventListener('touchstart', (e) => {
         _touchStartY = e.touches[0].clientY;
         _touchStartX = e.touches[0].clientX;
         _touchMoved = false;
         _isSelecting = false;
+        _touchInTerminal = container.contains(e.target);
         _lastMoveTime = performance.now();
         _velocity = 0;
         stopMomentum();
@@ -943,14 +943,12 @@
         // Safety: restore pointerEvents in case previous selection left it stuck
         const screen = container.querySelector('.xterm-screen');
         if (screen) screen.style.pointerEvents = '';
-
-        // Long-press selection DISABLED — testing input stability first
-        // const target = e.target;
-        // const isTerminalArea = container.contains(target);
-        // ... (long-press timer setup removed temporarily)
       }, { passive: true, capture: true, signal: touchSignal });
 
       document.addEventListener('touchmove', (e) => {
+        // Only scroll when touch started in terminal area (not quick-bar / keyboard zone)
+        if (!_touchInTerminal && !_isSelecting) return;
+
         const deltaY = _touchStartY - e.touches[0].clientY;
         const deltaX = _touchStartX - e.touches[0].clientX;
 
@@ -1012,15 +1010,17 @@
           return;
         }
 
-        // Flush any remaining scroll
-        if (_scrollThrottleTimer) {
-          clearTimeout(_scrollThrottleTimer);
-          _scrollThrottleTimer = null;
-        }
-        flushScroll();
-        // Start momentum if velocity is significant (in px units now)
-        if (_touchMoved && Math.abs(_velocity) > 5) {
-          startMomentum();
+        // Flush any remaining scroll (only if touch was in terminal)
+        if (_touchInTerminal) {
+          if (_scrollThrottleTimer) {
+            clearTimeout(_scrollThrottleTimer);
+            _scrollThrottleTimer = null;
+          }
+          flushScroll();
+          // Start momentum if velocity is significant (in px units now)
+          if (_touchMoved && Math.abs(_velocity) > 5) {
+            startMomentum();
+          }
         }
 
         if (!_touchMoved) {
@@ -1029,12 +1029,11 @@
           if (_inScrollMode) {
             wsSend('\x01scroll:exit');
             _inScrollMode = false;
-            adjustQuickBarPosition();  // Refresh input bar visibility
           }
           overlayInput.focus();
-        } else {
-          // Swipe happened — if keyboard was open, re-focus to keep input working.
-          if (_keyboardOpen) {
+        } else if (_touchInTerminal) {
+          // Swipe in terminal — re-focus if keyboard was open before scroll.
+          if (_keyboardOpen && Math.abs(_velocity) <= 5) {
             overlayInput.focus();
           }
         }
@@ -1410,6 +1409,23 @@
           _dbg('ACTION', '<b style="color:#f00">KD SEND FWD-DEL</b>');
         }
       }, { signal });
+
+      // Paste: intercept browser paste (iOS keyboard paste button / Cmd+V),
+      // send pasted text directly to terminal instead of into textarea.
+      ta.addEventListener('paste', (e) => {
+        e.preventDefault();
+        const text = (e.clipboardData || window.clipboardData).getData('text');
+        if (!text) return;
+        _dbg('paste', `len=${text.length} first20="${text.slice(0, 20)}"`);
+        // Flush any pending buffer first
+        if (this.state === 'BUFFERING') {
+          clearTimeout(this.bufferTimer); this.bufferTimer = null;
+          this._flush();
+        }
+        this.send(text);
+        // Don't touch textarea.value / snapshot — pasted text bypasses the diff model
+        _dbg('ACTION', `<b style="color:#0ff">PASTE ${text.length} chars</b>`);
+      }, { signal });
     }
 
     // --- Lifecycle ---
@@ -1422,8 +1438,8 @@
     }
   }
 
-  // Instantiate InputController — manages all textarea input events
-  window._inputController = new InputController(overlayInput, wsSend);
+  // InputController is created inside connect() on mobile (after cleanupConnection destroys the old one).
+  // Desktop doesn't need InputController — xterm handles keyboard input directly via term.onData().
 
   // File upload handler — reads photo, sends base64 to server, auto-types path into terminal
   document.getElementById('file-upload').addEventListener('change', async (e) => {
