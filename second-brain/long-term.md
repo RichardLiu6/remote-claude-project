@@ -6,8 +6,9 @@
 - 开关：统一 `/voice` skill（local/web/both/off），默认 both
 - 链路：/voice 创建 flag → voice-inject.sh 检查 flag 注入指令 → CC 生成 tag → voice-push.sh 路由到 afplay / POST server
 - session_id 通过 hook stdin JSON 获取，每次 UserPromptSubmit 写入 ~/.claude/current-session-id 供 skill 读取
-- `/voice` 无参数 toggle：关→开用 tmux 检测默认通道（tmux=web, 非 tmux=local），开→关
+- `/voice` 无参数 toggle：关→开检查 `~/.claude/web-session-{id}` 标记（start-claude.sh 启动=web，否则=local），开→关
 - **不能默认 both**：local 通道的 afplay 始终在 Mac 执行，手机远端操作时 Mac 会无故出声
+- web session 注册链：start-claude.sh `export CLAUDE_VIA_WEB=1` → voice-inject.sh 检测后创建 `~/.claude/web-session-{sid}` → kill 时清理
 - [设计文档](../docs/plans/2026-03-07-voice-refactor-design.md)
 
 ## Claude Code 自动化（03-07 更新）
@@ -18,11 +19,11 @@
 - 1 agent: `mobile-ux-reviewer`（移动端 UX 检查清单）
 - 1 MCP: Playwright（浏览器自动化测试）
 
-## 移动端触摸滚动（03-07 实现）
+## 移动端触摸滚动（03-07 实现，03-07 更新）
 - 根因：xterm.js scrollback buffer 连 tmux 时永远为空（tmux 管自己的 buffer）
 - 方案：`\x01scroll:up:N` / `down:N` / `exit` WebSocket 协议，server 端 `tmux copy-mode` + `send-keys -X scroll-up/down`
 - 物理参数：Apple 原生 0.95/帧衰减，非线性加速 `pow(px/6, 1.6)`，40ms 节流
-- 手势分流：短滑=滚动 / 长按=选中(待实现) / 点按=键盘
+- 手势分流：`_touchInTerminal` flag 限定滚动仅 terminal 区域，quick-bar/键盘区不触发
 - 详见 skill `tmux-xterm-scroll`
 
 ## 移动端输入模型（03-07 v3 重写）
@@ -31,7 +32,9 @@
 - snapshot diff：compositionend 不再全量发送，只发增量
 - AbortController 管理事件监听器，session 切换时一次性清理
 - 评分趋势 6.7→6.8→7.7，核心改善：软 Enter 恢复、Tab 补全后同步、中文不重复
-- 遗留：document 级 touch listener 泄漏（不在 InputController 管辖内）
+- InputController 生命周期修复：cleanupConnection 销毁后在 connect() 中重建，避免 session 切换后输入断连
+- overlay textarea 改为始终 on-screen（opacity:0.01 + pointer-events:none），不再 left:-9999px，修复 iOS focus() 失败
+- 输入框视觉隐藏：不再显示 "Type here..." 条，节省 36px 屏幕空间
 - 详见 skill `mobile-input-debug`
 
 ## Agent Team 迭代模式（03-07 建立）
@@ -47,6 +50,23 @@
 - `worktree-agent-ae7bedb4`：iOS App 早期 + Agent 文档，已合入 ios-native-app-phase1
 - `feature/ios-native-app-phase1`：滚动/通知等早期功能，已合入 master
 - 活跃分支仅保留：`master` + `ios-native-app-phase1`（iOS App v6）
+
+## crontab + CC /loop 定时任务（03-08 记录）
+- macOS crontab：`crontab -e` 编辑，`crontab -l` 查看，最小粒度 1 分钟
+- CC `/loop` 命令：`/loop 5m <prompt>` 在当前 session 内循环执行，默认 10 分钟间隔
+- 组合场景：crontab 跑系统级定时（日报生成、服务健康检查），/loop 跑 session 内持续任务（监控部署、轮询 PR）
+- crontab 跑 CC：`*/30 * * * * cd /path && claude -p "检查部署状态" --allowedTools Bash,Read >> /tmp/cron.log 2>&1`
+- 注意：crontab 环境变量极简（无 PATH/LANG），需在命令中显式 export 或用 full path
+
+## macOS TCC + tmux Full Disk Access（03-16 排查）
+- Desktop/Documents/Downloads 受 TCC 保护，tmux 进程无 FDA 时 brew 初始化失败 → claude 启动也失败
+- 修复：System Settings → Privacy → Full Disk Access → 添加 `/opt/homebrew/bin/tmux`，重启 tmux server
+- 只影响 Desktop 下的项目（如 abl-ai），Documents 下的项目不受影响
+
+## CC + Slack 内网集成（03-10 社区经验）
+- 方案：内网 Pod 1:1 对应 Slack Thread，绕开官方 Slack 集成（需订阅 + 不能跑内网）
+- Pod 在内网可直接访问公司所有服务，配合 Agent Skill 覆盖审核/开发/部署/日志/排查全流程
+- [详细对比](../docs/cc-slack-integration-pattern.md)
 
 ## 多渠道消息 Agent（03-07 研究）
 - OpenClaw 三层架构：Channel Adapter → Gateway → Agent Runtime

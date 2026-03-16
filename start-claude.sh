@@ -43,6 +43,7 @@ stop_web_terminal_if_idle() {
   if [ "$remaining" -eq 0 ]; then
     pkill -f "node.*server.js" 2>/dev/null
     ssh-add -d ~/.ssh/id_ed25519 2>/dev/null
+    rm -f ~/.claude/web-session-* 2>/dev/null
     echo "Web terminal stopped (no sessions), SSH key removed"
   fi
 }
@@ -146,14 +147,13 @@ start_web_terminal
 
 tmux new-session -d -s "$SESSION_NAME" -c "$DIR"
 
+# 标记此 session 由 web terminal 启动（voice-inject.sh 据此注册 web session）
+# ulimit -n: Claude Code 需要大量文件描述符，macOS 默认 256 不够
+# --name: CC 2.x 原生支持启动时命名，替代原来的后台 /rename hack
 if [ "$SKIP_MODE" = "skip" ]; then
-    tmux send-keys -t "$SESSION_NAME" "unset CLAUDECODE; claude --dangerously-skip-permissions" Enter
+    tmux send-keys -t "$SESSION_NAME" "ulimit -n 2147483646; export CLAUDE_VIA_WEB=1; unset CLAUDECODE; claude --dangerously-skip-permissions --name $SESSION_NAME" Enter
 else
-    tmux send-keys -t "$SESSION_NAME" "unset CLAUDECODE; claude" Enter
+    tmux send-keys -t "$SESSION_NAME" "ulimit -n 2147483646; export CLAUDE_VIA_WEB=1; unset CLAUDECODE; claude --name $SESSION_NAME" Enter
 fi
-
-# 后台等 CC 启动后发 /rename（不阻塞 SSH 返回）
-(sleep 3 && tmux send-keys -t "$SESSION_NAME" "/rename $SESSION_NAME" && sleep 1 && tmux send-keys -t "$SESSION_NAME" Enter) </dev/null &>/dev/null &
-disown
 
 echo "Session $SESSION_NAME started in $DIR"

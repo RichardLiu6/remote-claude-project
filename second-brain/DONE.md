@@ -1,5 +1,6 @@
 # DONE
 
+### #29-partial [03-07] Web 终端移动端修复 — InputController 重建 + focus 恢复 + 输入框隐藏 + 滑动区域限定 + PWA manifest
 ### #18 [03-07] 语音系统重构后验证 — /voice skill 真机通过，WS 播放 + afplay 正常
 ### #12 [03-07] 远程界面滑动查看历史 — \x01scroll 协议 + tmux copy-mode，Apple 0.95 惯性物理
 ### #19 [03-07] 通知 hook 多环境适配 — session_id + 双通道(local/web) + tmux 推断
